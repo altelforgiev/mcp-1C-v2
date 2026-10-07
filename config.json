@@ -1,7 +1,7 @@
 {
   "server_name": "1c-metadata-mcp-server",
   "version": "1.1.0",
-  "metadata_file": "metadata.json",
+  "metadata_file": "data/metadata.json",
   "max_search_results": 15,
   "log_level": "INFO",
   "encoding": "utf-8",

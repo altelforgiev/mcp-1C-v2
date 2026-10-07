@@ -4,10 +4,10 @@ import sys
 import os
 
 # Add artifacts directory to sys.path so we can import mcp_server
-sys.path.append('/workspace/artifacts')
-sys.path.append('/workspace/scratch')
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
-METADATA_PATH = '/workspace/knowledge/metadata.json.txt'
+METADATA_PATH = os.path.join(ROOT, 'data', 'metadata.json')
 
 class TestMetadataJSON(unittest.TestCase):
 

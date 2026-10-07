@@ -1,71 +1,63 @@
 # MCP Server Metadata 1C:Enterprise (mcp-1C-v2)
 
-ИИ-инструмент и MCP-сервер (Model Context Protocol) для динамического извлечения метаданных конфигурации 1С:Предприятие 8.3 и генерации BSL / СКД запросов.
+ИИ-инструмент и MCP-сервер метаданных 1С:Предприятие 8.3. Запрос клиента в свободной форме идёт в модель, модель сама вызывает MCP, и только после карточки объекта возвращает текст BSL.
 
-## 🚀 Архитектурный обзор
+## Схема
 
-Инструмент решает проблему отсутствия схемы БД у LLM при составлении запросов 1С:
-1. Выгрузка конфигурации 1С в XML конвертируется в легкий JSON-дамп (`metadata.json`).
-2. **MCP-сервер (`mcp_server.py`)** предоставляет ИИ-модели стандартизированные инструменты (`tools`):
-   - `list_metadata_categories` — Обзор доступных категорий объектов 1С.
-   - `search_metadata` — Семантический/контекстный поиск таблиц, реквизитов и регистров.
-   - `get_metadata_structure` — Полная детализация полей и табличных частей конкретного объекта.
-3. На основе точных метаданных ИИ генерирует валидные, оптимизированные BSL-пакеты и СКД-схемы без галлюцинаций в именах полей.
+1. Клиент пишет запрос на доске.
+2. Модель получает запрос и список инструментов MCP. Хост до модели метаданные не ищет.
+3. Модель вызывает `search_metadata`, затем `get_metadata_structure`. Хост исполняет вызов через JSON-RPC `tools/call` того же сервера.
+4. Если модель пишет BSL раньше, хост возвращает запрос и требует инструменты.
+5. После успешных ответов MCP модель возвращает `bsl_code`, параметры и короткий комментарий. Запрос в базе не исполняется.
 
-## 📁 Структура проекта
+## Структура
 
 ```
 mcp-1C-v2/
-├── config.json               # Конфигурационный файл сервера MCP
-├── mcp_server.py             # Основной файл MCP-сервера (JSON-RPC 2.0 / stdio)
-├── parse_xml_to_json.py      # Скрипт конвертации XML-выгрузки 1С в metadata.json
-├── run_mcp_server.bat        # Скрипт быстрого запуска под Windows (chcp 65001 / UTF-8)
-├── helper.md                 # Руководство проекта, правила BSL/СКД и архив версий
-├── README.md                 # Документация репозитория
-├── data/
-│   └── metadata.json         # Дамп метаданных целевой конфигурации 1С
+├── config.json
+├── mcp_server.py             # JSON-RPC tools/list и tools/call
+├── app.py                    # доска: цикл модель → MCP → BSL
+├── parse_xml_to_json.py
+├── system_prompt.txt
+├── index.html
+├── data/metadata.json        # локальный дамп, не источник истины для git боевой базы
 └── tests/
-    └── test_metadata_json.py # Юнит-тесты структуры метаданных и работы MCP
+    ├── test_metadata_json.py
+    └── test_tool_loop.py     # порядок вызовов без LLM
 ```
 
-## 🛠 Быстрый запуск
+## Запуск
 
-### 1. Подготовка метаданных
-Выгрузите конфигурацию 1С в XML через Конфигуратор («Конфигурация» -> «Выгрузить конфигурацию в файлы...») и запустите конвертер:
+Подготовка дампа:
 
-```bash
+```
 python parse_xml_to_json.py /path/to/xml_dump data/metadata.json
 ```
 
-### 2. Запуск MCP-сервера
+Доска:
 
-**На Windows:**
-```cmd
-run_mcp_server.bat
+```
+python app.py
 ```
 
-**Через Python:**
-```bash
-python mcp_server.py
+Ключ лежит в `secrets.env` по образцу `secrets.env.template`. В лог ключ не пишется.
+
+MCP для внешнего клиента, stdio, одна строка JSON на запрос:
+
+```
+python mcp_server.py data/metadata.json
 ```
 
-### 3. Запуск юнит-тестов
-```bash
-python -m unittest tests/test_metadata_json.py
+Проверка порядка схемы без ключа:
+
+```
+python -m unittest tests.test_tool_loop tests.test_metadata_json
 ```
 
-## 📜 Настройки (`config.json`)
+## Инструменты
 
-```json
-{
-  "server_name": "1c-metadata-mcp-server",
-  "version": "1.1.0",
-  "metadata_file": "data/metadata.json",
-  "max_search_results": 15,
-  "log_level": "INFO",
-  "encoding": "utf-8"
-}
-```
+- `list_metadata_categories` — категории и число объектов.
+- `search_metadata` — поиск по словам, не по всей фразе как одной подстроке.
+- `get_metadata_structure` — карточка одного объекта.
 
-## 🔗 Git Remote
-Репозиторий подключен к origin: `https://github.com/altelforgiev/mcp-1C-v2.git`
+В индексе пока имена полей без типов и синонимов. Соединение по типу ссылки индекс не гарантирует.
