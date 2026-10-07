@@ -261,6 +261,12 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 except json.JSONDecodeError:
                     arguments = {}
                 result = call_mcp_tool(server, name, arguments)
+                has_card = any(step.get("tool") == "get_metadata_structure" and step.get("status") == "success" for step in trace)
+                if name == "check_query" and not has_card:
+                    result = {
+                        "status": "need_structure",
+                        "reasons": ["сначала get_metadata_structure, check_query до карточки не принимается"],
+                    }
                 trace.append({
                     "actor": "model",
                     "tool": name,

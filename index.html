@@ -86,7 +86,7 @@
                 const data = await res.json();
                 (data.trace || []).forEach((step) => {
                     if (step.tool === "require_mcp") {
-                        addLog("[хост] BSL до MCP отклонён", "text-red-400");
+                        addLog("[хост] " + (step.preview || "нужна карточка MCP"), "text-red-400");
                         return;
                     }
                     addLog("[модель → MCP] " + step.tool + " " + JSON.stringify(step.arguments || {}), "text-blue-300");

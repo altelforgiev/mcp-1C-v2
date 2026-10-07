@@ -273,7 +273,9 @@ class OneCMetadataMCPServer:
             reasons.append("имя категории во множественном числе, нужно имя из query_name")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
         if alias:
-            used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", text))
+            from_at = re.search(r"\bИЗ\b", text, re.IGNORECASE)
+            select_part = text[:from_at.start()] if from_at else text
+            used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", select_part))
             foreign = [name for name in used if name.lower() != alias.group(1).lower()]
             if foreign:
                 reasons.append("псевдоним полей не совпадает с псевдонимом источника: " + ", ".join(foreign))
