@@ -1,0 +1,9 @@
+{
+  "server_name": "1c-metadata-mcp-server",
+  "version": "1.1.0",
+  "metadata_file": "metadata.json",
+  "max_search_results": 15,
+  "log_level": "INFO",
+  "encoding": "utf-8",
+  "mcp_protocol_version": "2024-11-05"
+}

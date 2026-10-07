@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>1C Query AI Board — Генератор BSL/СКД запросов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .code-block { font-family: 'Consolas', 'Courier New', monospace; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- Header / Status Bar -->
+    <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg">
+        <div class="flex items-center space-x-3">
+            <i class="fa-solid font-bold fa-cube text-amber-500 text-2xl"></i>
+            <h1 class="text-xl font-bold tracking-wide">1C Query AI Board</h1>
+            <span class="text-xs bg-amber-500/20 text-amber-400 px-2.5 py-0.5 rounded-full border border-amber-500/30">v1.1.0</span>
+        </div>
+        
+        <div class="flex items-center space-x-6 text-sm mt-2 sm:mt-0">
+            <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" id="ai-status-dot"></span>
+                <span class="text-slate-400">ИИ Сервер:</span>
+                <span class="font-semibold text-emerald-400" id="ai-status-text">secrets.env (OPENAI_API_KEY) — Активен</span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-500" id="mcp-status-dot"></span>
+                <span class="text-slate-400">MCP Метаданные:</span>
+                <span class="font-semibold text-blue-400" id="mcp-status-text">data/metadata.json</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6">
+        
+        <!-- Left Column: Process & MCP Monitor (4 Cols) -->
+        <div class="lg:col-span-4 space-y-6 flex flex-col">
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-md flex-1 flex flex-col space-y-3">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                    <h2 class="font-semibold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-network-wired text-blue-400"></i> MCP Лог и Процессы
+                    </h2>
+                    <button onclick="clearLogs()" class="text-xs text-slate-400 hover:text-slate-200">Очистить</button>
+                </div>
+
+                <div class="space-y-2 text-xs text-slate-300">
+                    <div class="flex justify-between bg-slate-900/50 p-2 rounded">
+                        <span>Файл метаданных:</span>
+                        <span class="font-mono text-amber-300">data/metadata.json</span>
+                    </div>
+                    <div class="flex justify-between bg-slate-900/50 p-2 rounded">
+                        <span>Протокол транспорта:</span>
+                        <span class="font-mono text-emerald-300">stdio / JSON-RPC 2.0</span>
+                    </div>
+                    <div class="flex justify-between bg-slate-900/50 p-2 rounded">
+                        <span>API Ключ ИИ:</span>
+                        <span class="font-mono text-emerald-300">Загружен из secrets.env</span>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs text-slate-400 overflow-y-auto max-h-80" id="mcp-logs">
+                    <div class="text-blue-400">[SYSTEM] MCP Server initialized.</div>
+                    <div class="text-emerald-400">[INFO] OPENAI_API_KEY loaded from secrets.env.</div>
+                    <div class="text-slate-500">[WAIT] Ожидание ТЗ на BSL запрос от пользователя...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Prompt Input & Results Output (8 Cols) -->
+        <div class="lg:col-span-8 flex flex-col space-y-6">
+            
+            <!-- Prompt Input Box -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-md space-y-4">
+                <h2 class="font-semibold text-slate-200 flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i> Запрос к ИИ на создание BSL-запроса
+                </h2>
+
+                <textarea id="prompt-input" rows="3" placeholder="Например: Напиши запрос по остаткам товаров на складах и оборотам продаж за период. Соедини с номенклатурой и отфильтруй по виду номенклатуры..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm focus:outline-none focus:border-amber-500 text-slate-100 placeholder-slate-500 resize-none"></textarea>
+
+                <div class="flex justify-between items-center">
+                    <div class="text-xs text-slate-400">
+                        <i class="fa-solid fa-circle-info mr-1"></i> Использован API-ключ из secrets.env. Код оптимизируется по стандартам 1С.
+                    </div>
+                    <button onclick="generateQuery()" id="btn-generate" class="bg-amber-600 hover:bg-amber-500 text-white font-medium px-5 py-2 rounded-lg text-sm transition flex items-center gap-2 shadow-lg">
+                        <i class="fa-solid fa-paper-plane"></i> Сгенерировать BSL Запрос
+                    </button>
+                </div>
+            </div>
+
+            <!-- Query Output Area -->
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-md flex-1 flex flex-col space-y-4">
+                <div class="flex justify-between items-center border-b border-slate-700 pb-3">
+                    <h2 class="font-semibold text-slate-200 flex items-center gap-2">
+                        <i class="fa-solid fa-code text-emerald-400"></i> Результат генерации
+                    </h2>
+                    <button onclick="copyQuery()" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded transition flex items-center gap-1">
+                        <i class="fa-solid fa-copy"></i> Копировать BSL
+                    </button>
+                </div>
+
+                <div class="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-4 overflow-y-auto">
+                    <pre class="code-block text-xs text-emerald-300 whitespace-pre-wrap" id="code-output">// Нажмите "Сгенерировать BSL Запрос"...</pre>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                        <span class="font-semibold text-amber-400 block mb-1"><i class="fa-solid fa-sliders mr-1"></i> Объявленные параметры:</span>
+                        <div class="text-slate-300 font-mono" id="params-output">-</div>
+                    </div>
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700">
+                        <span class="font-semibold text-blue-400 block mb-1"><i class="fa-solid fa-sitemap mr-1"></i> Архитектура пакета:</span>
+                        <div class="text-slate-300" id="arch-output">-</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        function addLog(msg, colorClass = 'text-slate-400') {
+            const logBox = document.getElementById('mcp-logs');
+            const entry = document.createElement('div');
+            entry.className = colorClass;
+            entry.innerText = msg;
+            logBox.appendChild(entry);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function clearLogs() {
+            document.getElementById('mcp-logs').innerHTML = '';
+        }
+
+        function copyQuery() {
+            const code = document.getElementById('code-output').innerText;
+            navigator.clipboard.writeText(code);
+            alert('BSL запрос скопирован в буфер обмена!');
+        }
+
+		async function generateQuery() {
+            const prompt = document.getElementById('prompt-input').value.trim();
+            if (!prompt) {
+                alert('Пожалуйста, введите текст запроса!');
+                return;
+            }
+
+            const btn = document.getElementById('btn-generate');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Обработка...';
+
+            addLog(`[USER] Запрос: "${prompt}"`, 'text-amber-300');
+            addLog(`[MCP] Поиск метаданных и обращение к LLM...`, 'text-blue-400');
+
+            try {
+                const res = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({prompt: prompt})
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    // Выводим сгенерированный BSL код и параметры
+                    document.getElementById('code-output').innerText = data.bsl_code;
+                    
+                    if (data.parameters && data.parameters.length > 0) {
+                        document.getElementById('params-output').innerText = data.parameters.join(', ');
+                    } else {
+                        document.getElementById('params-output').innerText = "Параметры не требуются";
+                    }
+                    
+                    document.getElementById('arch-output').innerText = data.architecture_comment;
+                    addLog(`[LLM] BSL-код успешно сгенерирован!`, 'text-emerald-400');
+                } else {
+                    document.getElementById('code-output').innerText = data.bsl_code || "Произошла неизвестная ошибка";
+                    document.getElementById('params-output').innerText = "-";
+                    document.getElementById('arch-output').innerText = data.architecture_comment || "-";
+                    addLog(`[ERROR] Ошибка генерации`, 'text-red-400');
+                }
+            } catch (e) {
+                addLog(`[ERROR] Ошибка сети: ${e.message}`, 'text-red-400');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Сгенерировать BSL Запрос';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+# Environment and secrets
+secrets.env
+*.env
+.env
+
+# Python cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+
+# Editor and OS settings
+.vscode/
+.idea/
+*.swp
+.DS_Store
