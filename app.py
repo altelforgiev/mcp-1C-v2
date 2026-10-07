@@ -63,12 +63,27 @@ def openai_tools():
         {
             "type": "function",
             "function": {
-                "name": "get_metadata_structure",
-                "description": "Карточка одного объекта. Вызывай после поиска и до текста BSL.",
+                "name": "resolve_phrase",
+                "description": "Развилка фразы клиента. Вызывай первым. При need_clarification BSL не писать.",
                 "parameters": {
                     "type": "object",
-                    "properties": {"entity_name": {"type": "string"}},
-                    "required": ["entity_name"],
+                    "properties": {"phrase": {"type": "string"}},
+                    "required": ["phrase"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "check_query",
+                "description": "Проверка черновика по query_name и псевдониму.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "bsl_code": {"type": "string"},
+                        "entity_name": {"type": "string"},
+                    },
+                    "required": ["bsl_code", "entity_name"],
                 },
             },
         },
@@ -298,6 +313,14 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             continue
 
         reasons = check_bsl(prompt, bsl, trace, server)
+        resolved = server.resolve_phrase(prompt)
+        if resolved.get("need_clarification") and bsl.strip():
+            names = ", ".join(item.get("object", "") for item in resolved.get("candidates", []))
+            reasons.append(resolved.get("question") or f"нужно уточнение: {names}")
+        card = last_card(trace, server)
+        if card.get("status") == "success" and " из " in f" {bsl.lower()} ":
+            checked = server.check_query(bsl, card.get("full_name", ""))
+            reasons.extend(checked.get("reasons", []))
         comment = parsed.get("architecture_comment", "")
         if reasons:
             comment = "Не принято после проверки модели: " + "; ".join(reasons)

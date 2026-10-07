@@ -14,7 +14,8 @@ FOLDER_MAP = {
     "ChartsOfCharacteristicTypes": "ПланыВидовХарактеристик",
     "ChartsOfCalculationTypes": "ПланыВидовРасчета",
     "BusinessProcesses": "БизнесПроцессы",
-    "Tasks": "Задачи"
+    "Tasks": "Задачи",
+    "Enums": "Перечисления",
 }
 
 def clean_tag(tag_str):
@@ -22,6 +23,19 @@ def clean_tag(tag_str):
     if '}' in tag_str:
         return tag_str.split('}', 1)[1]
     return tag_str
+
+def extract_synonym(element):
+    for child in element:
+        if clean_tag(child.tag) != "Properties":
+            continue
+        for prop in child:
+            if clean_tag(prop.tag) != "Synonym":
+                continue
+            for item in prop.iter():
+                if clean_tag(item.tag) == "content" and item.text:
+                    return item.text.strip()
+    return None
+
 
 def extract_name(element):
     """Извлекает имя объекта или реквизита из блока Properties/Name."""
@@ -75,7 +89,7 @@ def parse_1c_xml_object(xml_file_path):
         child_tag = clean_tag(child.tag)
         if child_tag in ["Catalog", "Document", "AccumulationRegister", "InformationRegister", 
                          "AccountingRegister", "ChartOfAccounts", "ChartOfCharacteristicTypes",
-                         "ChartOfCalculationTypes", "BusinessProcess", "Task"]:
+                         "ChartOfCalculationTypes", "BusinessProcess", "Task", "Enum"]:
             md_object = child
             break
 
@@ -139,6 +153,9 @@ def parse_1c_xml_object(xml_file_path):
         data["Ресурсы"] = resources
     if tabular_sections:
         data["ТабличныеЧасти"] = tabular_sections
+    synonym = extract_synonym(md_object)
+    if synonym:
+        data["Синоним"] = synonym
 
     return obj_name, data
 

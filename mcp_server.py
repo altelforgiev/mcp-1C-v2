@@ -236,6 +236,63 @@ class OneCMetadataMCPServer:
             structure["СтандартныеРеквизиты"] = ["Ссылка", "Код", "Наименование"]
         return structure
 
+    def resolve_phrase(self, phrase: str) -> Dict[str, Any]:
+        text = (phrase or "").lower()
+        rules = self._phrase_rules()
+        for rule in rules:
+            if any(trigger in text for trigger in rule.get("triggers", [])):
+                return {
+                    "status": "success",
+                    "phrase": phrase,
+                    "matched": rule.get("id"),
+                    "need_clarification": bool(rule.get("need_clarification")),
+                    "question": rule.get("question", ""),
+                    "candidates": rule.get("candidates", []),
+                    "not": rule.get("not", []),
+                }
+        return {
+            "status": "success",
+            "phrase": phrase,
+            "matched": None,
+            "need_clarification": False,
+            "question": "",
+            "candidates": [],
+            "not": [],
+        }
+
+    def check_query(self, bsl_code: str, entity_name: str) -> Dict[str, Any]:
+        card = self.get_metadata_structure(entity_name)
+        if card.get("status") != "success":
+            return card
+        reasons = []
+        text = bsl_code or ""
+        query_name = card.get("query_name") or ""
+        if query_name and query_name not in text:
+            reasons.append(f"в тексте нет имени запроса {query_name}")
+        if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
+            reasons.append("имя категории во множественном числе, нужно имя из query_name")
+        alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
+        if alias:
+            used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", text))
+            foreign = [name for name in used if name.lower() != alias.group(1).lower()]
+            if foreign:
+                reasons.append("псевдоним полей не совпадает с псевдонимом источника: " + ", ".join(foreign))
+        return {
+            "status": "success" if not reasons else "rejected",
+            "ok": not reasons,
+            "entity_name": card.get("full_name"),
+            "query_name": query_name,
+            "reasons": reasons,
+        }
+
+    def _phrase_rules(self) -> List[Dict[str, Any]]:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "phrases.json")
+        if not os.path.exists(path):
+            return []
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload.get("phrases", [])
+
     def handle_mcp_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         method = request.get("method")
         params = request.get("params", {})
@@ -272,6 +329,10 @@ class OneCMetadataMCPServer:
                 res = self.search_metadata(arguments.get("query", ""), arguments.get("category"))
             elif tool_name == "get_metadata_structure":
                 res = self.get_metadata_structure(arguments.get("entity_name", ""))
+            elif tool_name == "resolve_phrase":
+                res = self.resolve_phrase(arguments.get("phrase", ""))
+            elif tool_name == "check_query":
+                res = self.check_query(arguments.get("bsl_code", ""), arguments.get("entity_name", ""))
             else:
                 return {
                     "jsonrpc": "2.0",
@@ -319,6 +380,27 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "entity_name": {"type": "string", "description": "Имя из поиска, лучше полное: 'Документы.АВРеализацияЗапасовИУслуг'."},
                 },
                 "required": ["entity_name"],
+            },
+        },
+        {
+            "name": "resolve_phrase",
+            "description": "Развилка фразы клиента по словарю конфигурации. Вызывай первым. Если need_clarification=true, BSL не писать.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"phrase": {"type": "string", "description": "Фраза клиента целиком."}},
+                "required": ["phrase"],
+            },
+        },
+        {
+            "name": "check_query",
+            "description": "Проверка черновика: имя из query_name и один псевдоним. Вызывай перед финальным JSON.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bsl_code": {"type": "string"},
+                    "entity_name": {"type": "string"},
+                },
+                "required": ["bsl_code", "entity_name"],
             },
         },
     ]
