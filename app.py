@@ -162,6 +162,27 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     return reasons
 
 
+def review_prompt(prompt: str, bsl: str, card: dict) -> str:
+    return (
+        "Проверь и при необходимости исправь свой BSL. Карточка MCP уже получена, инструменты не вызывай.\n"
+        f"Запрос клиента: {prompt}\n"
+        f"Карточка: {json.dumps(card, ensure_ascii=False)}\n"
+        f"Черновик: {bsl}\n"
+        "Проверь: ВЫБРАТЬ, затем поля, затем ИЗ; у Остатки(...) есть КАК; "
+        "для одной выборки остатков нет ПОМЕСТИТЬ и УНИЧТОЖИТЬ; дата не строкой в ГДЕ; "
+        "поля только из колонок карточки. "
+        "Верни строго JSON с bsl_code, parameters, architecture_comment. "
+        "Если исправить нельзя, bsl_code оставь пустым и напиши причину в architecture_comment."
+    )
+
+
+def last_card(trace: list, server: OneCMetadataMCPServer) -> dict:
+    for step in reversed(trace):
+        if step.get("tool") == "get_metadata_structure" and step.get("status") == "success":
+            return server.get_metadata_structure((step.get("arguments") or {}).get("entity_name", ""))
+    return {}
+
+
 def preview_result(result: dict) -> str:
     if result.get("status") == "error":
         return result.get("message", "ошибка")
@@ -179,7 +200,7 @@ def preview_result(result: dict) -> str:
 def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, system_prompt: str) -> dict:
     """Цепочка: запрос клиента → модель → MCP tools/call → BSL. Поиск до модели не выполняется."""
     trace = []
-    rejected_once = False
+    reviewed = False
     messages = [
         {
             "role": "system",
@@ -198,7 +219,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
     ]
 
     for _ in range(MAX_TOOL_ROUNDS):
-        message = llm_complete(messages, openai_tools())
+        message = llm_complete(messages, [] if reviewed else openai_tools())
         tool_calls = message.get("tool_calls") or []
         content = message.get("content") or ""
 
@@ -262,30 +283,27 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             }
 
         bsl = parsed.get("bsl_code", "")
-        reasons = check_bsl(prompt, bsl, trace, server)
-        if reasons and not rejected_once:
-            rejected_once = True
+        if not reviewed:
+            reviewed = True
+            card = last_card(trace, server)
             messages.append({"role": "assistant", "content": content or ""})
-            messages.append({
-                "role": "user",
-                "content": "BSL не принят: " + "; ".join(reasons) + ". Возьми preferred из поиска, карточку регистра и пример виртуальной таблицы. Верни новый JSON.",
-            })
+            messages.append({"role": "user", "content": review_prompt(prompt, bsl, card)})
             trace.append({
-                "actor": "host",
-                "tool": "reject_bsl",
+                "actor": "model",
+                "tool": "review_bsl",
                 "arguments": {},
-                "status": "rejected",
-                "preview": "; ".join(reasons),
+                "status": "review",
+                "preview": "та же модель проверяет BSL по карточке",
             })
             continue
 
-        status = "success" if not reasons else "rejected"
+        reasons = check_bsl(prompt, bsl, trace, server)
         comment = parsed.get("architecture_comment", "")
         if reasons:
-            comment = "Не принято: " + "; ".join(reasons)
+            comment = "Не принято после проверки модели: " + "; ".join(reasons)
             bsl = "// BSL не принят.\n// " + "\n// ".join(reasons) + "\n\n" + bsl
         return {
-            "status": status,
+            "status": "success" if not reasons else "rejected",
             "prompt": prompt,
             "trace": trace,
             "bsl_code": bsl or "// Модель не вернула bsl_code",

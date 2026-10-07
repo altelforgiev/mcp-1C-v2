@@ -20,7 +20,8 @@ class ToolLoopOrderTest(unittest.TestCase):
 
         def fake_llm(messages, tools):
             calls["n"] += 1
-            self.assertTrue(any(item["function"]["name"] == "search_metadata" for item in tools))
+            if tools:
+                self.assertTrue(any(item["function"]["name"] == "search_metadata" for item in tools))
             if calls["n"] == 1:
                 return {
                     "content": None,
@@ -55,7 +56,10 @@ class ToolLoopOrderTest(unittest.TestCase):
 
         result = app.run_generation("список товаров", server, fake_llm, "тест")
         self.assertEqual(result["status"], "success")
-        self.assertEqual([step["tool"] for step in result["trace"]], ["search_metadata", "get_metadata_structure"])
+        self.assertEqual(
+            [step["tool"] for step in result["trace"]],
+            ["search_metadata", "get_metadata_structure", "review_bsl"],
+        )
         self.assertTrue(all(step["actor"] == "model" for step in result["trace"]))
         self.assertIn("ВЫБРАТЬ", result["bsl_code"])
         self.assertEqual(result["schema"], "client -> model -> mcp -> bsl")
@@ -91,6 +95,7 @@ class ToolLoopOrderTest(unittest.TestCase):
         result = app.run_generation("склады", server, fake_llm, "тест")
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["trace"][0]["tool"], "require_mcp")
+        self.assertIn("review_bsl", [step["tool"] for step in result["trace"]])
         self.assertIn("search_metadata", [step["tool"] for step in result["trace"]])
         self.assertNotIn("ВЫБРАТЬ 1", result["bsl_code"])
 

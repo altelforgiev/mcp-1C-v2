@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -31,7 +32,27 @@ class BalanceRankingTest(unittest.TestCase):
         sample = card["structure"]["ВиртуальныеТаблицы"]["Остатки"]["пример"]
         self.assertIn("РегистрНакопления.АВТоварыНаСкладах.Остатки(&ДатаОстатков", sample)
 
-    def test_broken_balance_package_is_rejected(self):
+    def test_review_does_not_substitute_template(self):
+        server = OneCMetadataMCPServer(METADATA)
+        calls = {"n": 0}
+
+        def fake_llm(messages, tools):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"tool_calls": [{"id": "s", "type": "function", "function": {"name": "search_metadata", "arguments": "{\"query\":\"остатки склады\"}"}}]}
+            if calls["n"] == 2:
+                return {"tool_calls": [{"id": "g", "type": "function", "function": {"name": "get_metadata_structure", "arguments": "{\"entity_name\":\"РегистрыНакопления.АВТоварыНаСкладах\"}"}}]}
+            if calls["n"] == 3:
+                return {"content": json.dumps({"bsl_code": "ПОМЕСТИТЬ ВТ ВЫБРАТЬ 1; УНИЧТОЖИТЬ ВТ;", "parameters": [], "architecture_comment": "черновик"})}
+            self.assertFalse(tools)
+            self.assertIn("Карточка", messages[-1]["content"])
+            self.assertIn("АВТоварыНаСкладах", messages[-1]["content"])
+            return {"content": json.dumps({"bsl_code": "ПОМЕСТИТЬ ВТ ВЫБРАТЬ 1; УНИЧТОЖИТЬ ВТ;", "parameters": [], "architecture_comment": "не исправлен"})}
+
+        result = app.run_generation("остатки запасов на складах", server, fake_llm, "тест")
+        self.assertEqual(result["status"], "rejected")
+        self.assertNotIn("Остатки(&ДатаОстатков, ) КАК Остатки", result["bsl_code"])
+        self.assertIn("review_bsl", [step["tool"] for step in result["trace"]])
         server = OneCMetadataMCPServer(METADATA)
         broken = """
         ПОМЕСТИТЬ ВТ_Остатки
