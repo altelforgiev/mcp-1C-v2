@@ -31,7 +31,25 @@ class BalanceRankingTest(unittest.TestCase):
         sample = card["structure"]["ВиртуальныеТаблицы"]["Остатки"]["пример"]
         self.assertIn("РегистрНакопления.АВТоварыНаСкладах.Остатки(&ДатаОстатков", sample)
 
-    def test_inventory_bsl_is_rejected(self):
+    def test_broken_balance_package_is_rejected(self):
+        server = OneCMetadataMCPServer(METADATA)
+        broken = """
+        ПОМЕСТИТЬ ВТ_Остатки
+        ВЫБРАТЬ Остатки.Товар
+        ИЗ РегистрНакопления.АВТоварыНаСкладах.Остатки(&ДатаОстатков)
+        ГДЕ &ДатаОстатков = '2026-08-31';
+        УНИЧТОЖИТЬ ВТ_Остатки;
+        """
+        trace = [{
+            "tool": "get_metadata_structure",
+            "status": "success",
+            "arguments": {"entity_name": "РегистрыНакопления.АВТоварыНаСкладах"},
+        }]
+        reasons = app.check_bsl("остатки запасов на складах на август 2026", broken, trace, server)
+        self.assertTrue(any("ПОМЕСТИТЬ стоит до ВЫБРАТЬ" in item for item in reasons))
+        self.assertTrue(any("псевдонима" in item for item in reasons))
+        self.assertTrue(any("строкой" in item for item in reasons))
+        self.assertTrue(any("итоговой выборки" in item for item in reasons))
         server = OneCMetadataMCPServer(METADATA)
         trace = [{
             "tool": "get_metadata_structure",

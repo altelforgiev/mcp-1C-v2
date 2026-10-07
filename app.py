@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -120,8 +121,12 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     reasons = []
     text = bsl or ""
     lowered = text.lower()
-    intent = "остатки" if "остат" in (prompt or "").lower() and "инвентар" not in (prompt or "").lower() else None
-    if "оборот" in (prompt or "").lower():
+    compact = re.sub(r"\s+", " ", lowered)
+    intent = None
+    prompt_lower = (prompt or "").lower()
+    if "остат" in prompt_lower and "инвентар" not in prompt_lower:
+        intent = "остатки"
+    elif "оборот" in prompt_lower:
         intent = "обороты"
     card = None
     for step in trace:
@@ -135,9 +140,20 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     if intent == "остатки" and category != "РегистрыНакопления":
         reasons.append(f"для остатков взят {category}.{entity}, нужен регистр накопления")
     if intent == "остатки" and ".остатки(" not in lowered:
-        reasons.append("нет виртуальной таблицы Остатки(&ДатаОстатков)")
+        reasons.append("нет виртуальной таблицы Остатки(&ДатаОстатков, )")
+    if intent in ("остатки", "обороты") and ("поместить" in lowered or "уничтожить" in lowered):
+        reasons.append("для одной выборки остатков или оборотов пакет, ПОМЕСТИТЬ и УНИЧТОЖИТЬ не нужны")
+    if re.search(r"поместить\s+\S+\s+выбрать", compact):
+        reasons.append("ПОМЕСТИТЬ стоит до ВЫБРАТЬ; нужно ВЫБРАТЬ поля ПОМЕСТИТЬ Имя ИЗ")
     if "уничтожить" in lowered and "поместить" not in lowered:
         reasons.append("УНИЧТОЖИТЬ без ПОМЕСТИТЬ")
+    statements = [part.strip() for part in text.split(";") if part.strip()]
+    if statements and statements[-1].lower().startswith("уничтожить"):
+        reasons.append("пакет кончается УНИЧТОЖИТЬ, итоговой выборки нет")
+    if ".остатки(" in lowered and not re.search(r"остатки\s*\([^)]*\)\s*как\s+", lowered):
+        reasons.append("у Остатки(...) нет псевдонима КАК")
+    if re.search(r"где[\s\S]{0,200}'20\d\d-\d\d-\d\d'", lowered):
+        reasons.append("дата написана строкой в ГДЕ; для остатка оставь &ДатаОстатков в параметре виртуальной таблицы")
     for section in (structure.get("ТабличныеЧасти") or {}):
         if f".{section.lower()}." in lowered:
             reasons.append(f"табличная часть {section} написана точкой, а не отдельной таблицей")
