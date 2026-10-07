@@ -263,10 +263,39 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 result = call_mcp_tool(server, name, arguments)
                 has_card = any(step.get("tool") == "get_metadata_structure" and step.get("status") == "success" for step in trace)
                 if name == "check_query" and not has_card:
-                    result = {
-                        "status": "need_structure",
-                        "reasons": ["сначала get_metadata_structure, check_query до карточки не принимается"],
-                    }
+                    entity_name = arguments.get("entity_name") or ""
+                    card = server.get_metadata_structure(entity_name)
+                    trace.append({
+                        "actor": "host",
+                        "tool": "get_metadata_structure",
+                        "arguments": {"entity_name": entity_name},
+                        "status": card.get("status", "error"),
+                        "preview": preview_result(card),
+                    })
+                    result = server.check_query(arguments.get("bsl_code", ""), card.get("full_name", entity_name))
+                    trace.append({
+                        "actor": "model",
+                        "tool": name,
+                        "arguments": arguments,
+                        "status": result.get("status", "error"),
+                        "preview": preview_result(result),
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.get("id", name),
+                        "content": json.dumps(result, ensure_ascii=False),
+                    })
+                    if result.get("ok"):
+                        return {
+                            "status": "success",
+                            "prompt": prompt,
+                            "trace": trace,
+                            "bsl_code": arguments.get("bsl_code", ""),
+                            "parameters": re.findall(r"&[0-9A-Za-zА-Яа-яЁё_]+", arguments.get("bsl_code", "")),
+                            "architecture_comment": "Карточку открыл хост, текст оставил модель. check_query прошёл.",
+                            "schema": "client -> model -> mcp -> bsl",
+                        }
+                    continue
                 trace.append({
                     "actor": "model",
                     "tool": name,
