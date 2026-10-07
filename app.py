@@ -116,6 +116,36 @@ def parse_final_payload(content: str) -> dict:
     return parsed
 
 
+def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer) -> list:
+    reasons = []
+    text = bsl or ""
+    lowered = text.lower()
+    intent = "остатки" if "остат" in (prompt or "").lower() and "инвентар" not in (prompt or "").lower() else None
+    if "оборот" in (prompt or "").lower():
+        intent = "обороты"
+    card = None
+    for step in trace:
+        if step.get("tool") == "get_metadata_structure" and step.get("status") == "success":
+            card = server.get_metadata_structure((step.get("arguments") or {}).get("entity_name", ""))
+    if card is None or card.get("status") != "success":
+        return ["нет успешной карточки MCP"]
+    category = card.get("category")
+    entity = card.get("entity_name")
+    structure = card.get("structure") or {}
+    if intent == "остатки" and category != "РегистрыНакопления":
+        reasons.append(f"для остатков взят {category}.{entity}, нужен регистр накопления")
+    if intent == "остатки" and ".остатки(" not in lowered:
+        reasons.append("нет виртуальной таблицы Остатки(&ДатаОстатков)")
+    if "уничтожить" in lowered and "поместить" not in lowered:
+        reasons.append("УНИЧТОЖИТЬ без ПОМЕСТИТЬ")
+    for section in (structure.get("ТабличныеЧасти") or {}):
+        if f".{section.lower()}." in lowered:
+            reasons.append(f"табличная часть {section} написана точкой, а не отдельной таблицей")
+    if "незадан" in lowered:
+        reasons.append("поля НеЗадан нет в карточке")
+    return reasons
+
+
 def preview_result(result: dict) -> str:
     if result.get("status") == "error":
         return result.get("message", "ошибка")
@@ -133,6 +163,7 @@ def preview_result(result: dict) -> str:
 def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, system_prompt: str) -> dict:
     """Цепочка: запрос клиента → модель → MCP tools/call → BSL. Поиск до модели не выполняется."""
     trace = []
+    rejected_once = False
     messages = [
         {
             "role": "system",
@@ -142,6 +173,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "1. Сначала вызови search_metadata по ключевым словам клиента.\n"
                 "2. Затем вызови get_metadata_structure по точному имени из поиска.\n"
                 "3. Только после успешных ответов MCP верни JSON с ключами bsl_code, parameters, architecture_comment.\n"
+                "Для остатков бери регистр накопления из preferred и пиши виртуальную таблицу Остатки(&ДатаОстатков) из карточки.\n"
                 "Имена объектов и полей бери только из ответов инструментов. Не выдумывай реквизиты.\n"
                 "Не пиши BSL, пока оба инструмента не ответили status=success."
             ),
@@ -213,13 +245,36 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
+        bsl = parsed.get("bsl_code", "")
+        reasons = check_bsl(prompt, bsl, trace, server)
+        if reasons and not rejected_once:
+            rejected_once = True
+            messages.append({"role": "assistant", "content": content or ""})
+            messages.append({
+                "role": "user",
+                "content": "BSL не принят: " + "; ".join(reasons) + ". Возьми preferred из поиска, карточку регистра и пример виртуальной таблицы. Верни новый JSON.",
+            })
+            trace.append({
+                "actor": "host",
+                "tool": "reject_bsl",
+                "arguments": {},
+                "status": "rejected",
+                "preview": "; ".join(reasons),
+            })
+            continue
+
+        status = "success" if not reasons else "rejected"
+        comment = parsed.get("architecture_comment", "")
+        if reasons:
+            comment = "Не принято: " + "; ".join(reasons)
+            bsl = "// BSL не принят.\n// " + "\n// ".join(reasons) + "\n\n" + bsl
         return {
-            "status": "success",
+            "status": status,
             "prompt": prompt,
             "trace": trace,
-            "bsl_code": parsed.get("bsl_code", "// Модель не вернула bsl_code"),
+            "bsl_code": bsl or "// Модель не вернула bsl_code",
             "parameters": parsed.get("parameters", []),
-            "architecture_comment": parsed.get("architecture_comment", ""),
+            "architecture_comment": comment,
             "schema": "client -> model -> mcp -> bsl",
         }
 

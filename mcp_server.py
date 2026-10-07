@@ -65,6 +65,7 @@ class OneCMetadataMCPServer:
         results = []
         query_lower = (query or "").lower().strip()
         tokens = self._tokens(query_lower)
+        intent = self._intent(query_lower)
         categories_to_search = [category] if category and category in self.metadata else self.metadata.keys()
 
         for cat in categories_to_search:
@@ -72,6 +73,7 @@ class OneCMetadataMCPServer:
             if not isinstance(entities, dict):
                 continue
             for entity_name, details in entities.items():
+                details = details if isinstance(details, dict) else {}
                 full_name = f"{cat}.{entity_name}"
                 matched_fields = []
                 haystack = f"{cat} {entity_name}".lower()
@@ -83,49 +85,101 @@ class OneCMetadataMCPServer:
                         score += 3
                     elif token in haystack:
                         score += 1
-                if isinstance(details, dict):
-                    for req in details.get("Реквизиты", []):
-                        if self._field_hit(req, query_lower, tokens):
-                            matched_fields.append(f"Реквизит: {req}")
-                            score += 2
-                    for dim in details.get("Измерения", []):
-                        if self._field_hit(dim, query_lower, tokens):
-                            matched_fields.append(f"Измерение: {dim}")
-                            score += 2
-                    for res in details.get("Ресурсы", []):
-                        if self._field_hit(res, query_lower, tokens):
-                            matched_fields.append(f"Ресурс: {res}")
-                            score += 2
-                    for ts_name, ts_cols in details.get("ТабличныеЧасти", {}).items():
-                        if self._field_hit(ts_name, query_lower, tokens):
-                            matched_fields.append(f"ТабличнаяЧасть: {ts_name}")
-                            score += 2
-                        for col in ts_cols:
-                            if self._field_hit(col, query_lower, tokens):
-                                matched_fields.append(f"ТабличнаяЧасть.{ts_name}.{col}")
-                                score += 1
+                for req in details.get("Реквизиты", []):
+                    if self._field_hit(req, query_lower, tokens, intent):
+                        matched_fields.append(f"Реквизит: {req}")
+                        score += 2
+                for dim in details.get("Измерения", []):
+                    if self._field_hit(dim, query_lower, tokens, intent):
+                        matched_fields.append(f"Измерение: {dim}")
+                        score += 2
+                for res in details.get("Ресурсы", []):
+                    if self._field_hit(res, query_lower, tokens, intent):
+                        matched_fields.append(f"Ресурс: {res}")
+                        score += 2
+                for ts_name, ts_cols in details.get("ТабличныеЧасти", {}).items():
+                    if self._field_hit(ts_name, query_lower, tokens, intent):
+                        matched_fields.append(f"ТабличнаяЧасть: {ts_name}")
+                        score += 2
+                    for col in ts_cols:
+                        if self._field_hit(col, query_lower, tokens, intent):
+                            matched_fields.append(f"ТабличнаяЧасть.{ts_name}.{col}")
+                            score += 1
+                score += self._intent_boost(intent, cat, entity_name, details, query_lower)
                 if score > 0:
                     results.append({
                         "category": cat,
                         "entity_name": entity_name,
                         "full_name": full_name,
                         "matched_fields": matched_fields[:12],
+                        "dimensions": details.get("Измерения", []),
+                        "resources": details.get("Ресурсы", []),
+                        "вид_выборки": intent or "список",
                         "score": score,
                     })
 
         results.sort(key=lambda item: item["score"], reverse=True)
         limited = results[: self.max_search_results]
+        balance_candidates = [
+            item["full_name"] for item in results
+            if item["category"] == "РегистрыНакопления" and self._warehouse_goods(item)
+        ]
         return {
             "status": "success",
             "query": query,
             "tokens": tokens,
+            "intent": intent or "список",
+            "preferred": limited[0]["full_name"] if limited else None,
+            "balance_candidates": balance_candidates[:6],
             "total_found": len(results),
             "results": limited,
         }
 
     @staticmethod
-    def _field_hit(name: str, query_lower: str, tokens: List[str]) -> bool:
+    def _intent(query_lower: str) -> Optional[str]:
+        if "инвентар" in query_lower:
+            return None
+        if "остат" in query_lower:
+            return "остатки"
+        if "оборот" in query_lower:
+            return "обороты"
+        return None
+
+    @staticmethod
+    def _warehouse_goods(item: Dict[str, Any]) -> bool:
+        dims = [name.lower() for name in item.get("dimensions", [])]
+        has_store = any("склад" in name for name in dims)
+        has_goods = any(token in name for name in dims for token in ("товар", "номенклат"))
+        return has_store and has_goods
+
+    def _intent_boost(self, intent: Optional[str], category: str, entity_name: str, details: Dict[str, Any], query_lower: str) -> int:
+        if intent not in ("остатки", "обороты"):
+            return 0
+        dims = details.get("Измерения", [])
+        probe = {"dimensions": dims}
+        score = 0
+        if category == "РегистрыНакопления" and self._warehouse_goods(probe):
+            score += 25
+        if category == "РегистрыНакопления" and "склад" in entity_name.lower():
+            score += 8
+        lowered = entity_name.lower()
+        if "парти" in query_lower and "парти" in lowered:
+            score += 12
+        if "виртуал" in query_lower and "виртуал" in lowered:
+            score += 12
+        if "забаланс" in query_lower and "забаланс" in lowered:
+            score += 12
+        if category == "Документы":
+            score -= 15
+        if intent == "остатки" and category == "РегистрыНакопления" and lowered == "автоварынаскладах" and "парти" not in query_lower and "виртуал" not in query_lower and "забаланс" not in query_lower:
+            score += 10
+        return score
+
+    @staticmethod
+    def _field_hit(name: str, query_lower: str, tokens: List[str], intent: Optional[str] = None) -> bool:
         lowered = name.lower()
+        if intent == "остатки" and lowered.endswith("остаток"):
+            return False
         if query_lower and query_lower in lowered:
             return True
         return any(token in lowered for token in tokens)
@@ -142,17 +196,45 @@ class OneCMetadataMCPServer:
             if isinstance(entities, dict):
                 for ent_name, details in entities.items():
                     if ent_name.lower() == target_entity.lower():
+                        structure = self._enrich_structure(cat, ent_name, details)
                         return {
                             "status": "success",
                             "category": cat,
                             "entity_name": ent_name,
                             "full_name": f"{cat}.{ent_name}",
-                            "structure": details,
+                            "query_name": structure.get("ИмяВЗапросе"),
+                            "structure": structure,
                         }
         return {
             "status": "error",
             "message": f"Entity '{entity_name}' not found in metadata schema.",
         }
+
+    @staticmethod
+    def _enrich_structure(category: str, entity_name: str, details: Dict[str, Any]) -> Dict[str, Any]:
+        structure = dict(details or {})
+        if category == "РегистрыНакопления":
+            columns = list(structure.get("Измерения", [])) + list(structure.get("Ресурсы", []))
+            structure["ИмяВЗапросе"] = f"РегистрНакопления.{entity_name}"
+            structure["ВиртуальныеТаблицы"] = {
+                "Остатки": {
+                    "параметры": ["&ДатаОстатков"],
+                    "колонки": columns,
+                    "пример": f"РегистрНакопления.{entity_name}.Остатки(&ДатаОстатков, )",
+                },
+                "Обороты": {
+                    "параметры": ["&НачалоПериода", "&КонецПериода"],
+                    "колонки": columns,
+                    "пример": f"РегистрНакопления.{entity_name}.Обороты(&НачалоПериода, &КонецПериода, , )",
+                },
+            }
+        elif category == "Документы":
+            structure["ИмяВЗапросе"] = f"Документ.{entity_name}"
+            structure["СтандартныеРеквизиты"] = ["Ссылка", "Дата", "Номер", "Проведен"]
+        elif category == "Справочники":
+            structure["ИмяВЗапросе"] = f"Справочник.{entity_name}"
+            structure["СтандартныеРеквизиты"] = ["Ссылка", "Код", "Наименование"]
+        return structure
 
     def handle_mcp_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         method = request.get("method")

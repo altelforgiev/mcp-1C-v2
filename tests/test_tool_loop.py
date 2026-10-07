@@ -53,7 +53,7 @@ class ToolLoopOrderTest(unittest.TestCase):
                 }, ensure_ascii=False),
             }
 
-        result = app.run_generation("остатки товаров", server, fake_llm, "тест")
+        result = app.run_generation("список товаров", server, fake_llm, "тест")
         self.assertEqual(result["status"], "success")
         self.assertEqual([step["tool"] for step in result["trace"]], ["search_metadata", "get_metadata_structure"])
         self.assertTrue(all(step["actor"] == "model" for step in result["trace"]))
