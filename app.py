@@ -261,6 +261,24 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 except json.JSONDecodeError:
                     arguments = {}
                 result = call_mcp_tool(server, name, arguments)
+                if name == "resolve_phrase" and result.get("need_clarification"):
+                    names = ", ".join(item.get("object", "") for item in result.get("candidates", []))
+                    trace.append({
+                        "actor": "model",
+                        "tool": name,
+                        "arguments": arguments,
+                        "status": "need_clarification",
+                        "preview": result.get("question") or names,
+                    })
+                    return {
+                        "status": "need_clarification",
+                        "prompt": prompt,
+                        "trace": trace,
+                        "bsl_code": "",
+                        "parameters": [],
+                        "architecture_comment": (result.get("question") or "Нужно уточнение") + " " + names,
+                        "schema": "client -> model -> mcp -> bsl",
+                    }
                 has_card = any(step.get("tool") == "get_metadata_structure" and step.get("status") == "success" for step in trace)
                 if name == "check_query" and not has_card:
                     entity_name = arguments.get("entity_name") or ""

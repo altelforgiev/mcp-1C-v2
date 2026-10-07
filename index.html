@@ -95,7 +95,7 @@
                 document.getElementById("code-output").textContent = data.bsl_code || "// пусто";
                 document.getElementById("params-output").textContent = "Параметры: " + ((data.parameters || []).join(", ") || "-");
                 document.getElementById("arch-output").textContent = "Архитектура: " + (data.architecture_comment || "-");
-                addLog(data.status === "success" ? "[модель] BSL после MCP" : "[ошибка] BSL не принят", data.status === "success" ? "text-emerald-400" : "text-red-400");
+                addLog(data.status === "success" ? "[модель] BSL после MCP" : (data.status === "need_clarification" ? "[уточнение] " + (data.architecture_comment || "") : "[ошибка] BSL не принят"), data.status === "success" ? "text-emerald-400" : "text-red-400");
             } catch (err) {
                 addLog("[сеть] " + err.message, "text-red-400");
             } finally {

@@ -189,6 +189,12 @@ class OneCMetadataMCPServer:
         target_entity = entity_name or ""
         if "." in target_entity:
             target_cat, target_entity = target_entity.split(".", 1)
+        target_cat = {
+            "документ": "Документы",
+            "справочник": "Справочники",
+            "регистрнакопления": "РегистрыНакопления",
+            "регистрсведений": "РегистрыСведений",
+        }.get((target_cat or "").lower(), target_cat)
 
         for cat, entities in self.metadata.items():
             if target_cat and cat.lower() != target_cat.lower():
