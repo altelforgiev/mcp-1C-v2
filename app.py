@@ -199,6 +199,11 @@ def last_card(trace: list, server: OneCMetadataMCPServer) -> dict:
 
 
 def preview_result(result: dict) -> str:
+    if result.get("reasons"):
+        return "; ".join(result["reasons"])
+    if result.get("need_clarification"):
+        names = ", ".join(item.get("object", "") for item in result.get("candidates", []))
+        return result.get("question") or f"уточнение: {names}"
     if result.get("status") == "error":
         return result.get("message", "ошибка")
     if "results" in result:
@@ -209,6 +214,8 @@ def preview_result(result: dict) -> str:
         return f"{result['full_name']}: {', '.join(fields)}"
     if "categories" in result:
         return "категорий: " + str(len(result["categories"]))
+    if result.get("matched") is None and "need_clarification" in result:
+        return "фраза без развилки"
     return "ok"
 
 
@@ -222,12 +229,13 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             "content": (
                 f"{system_prompt}\n\n"
                 "СХЕМА ЭТОГО ЗАПРОСА:\n"
-                "1. Сначала вызови search_metadata по ключевым словам клиента.\n"
-                "2. Затем вызови get_metadata_structure по точному имени из поиска.\n"
-                "3. Только после успешных ответов MCP верни JSON с ключами bsl_code, parameters, architecture_comment.\n"
-                "Для остатков бери регистр накопления из preferred и пиши виртуальную таблицу Остатки(&ДатаОстатков) из карточки.\n"
-                "Имена объектов и полей бери только из ответов инструментов. Не выдумывай реквизиты.\n"
-                "Не пиши BSL, пока оба инструмента не ответили status=success."
+                "1. resolve_phrase по фразе клиента.\n"
+                "2. search_metadata по ключевым словам.\n"
+                "3. get_metadata_structure по имени из поиска. До карточки check_query не вызывать.\n"
+                "4. Черновик пиши из query_name карточки, затем check_query.\n"
+                "5. Только после карточки верни JSON с bsl_code, parameters, architecture_comment.\n"
+                "Для остатков источник: РегистрНакопления.<имя>.Остатки(&ДатаОстатков, ) КАК Остатки.\n"
+                "Не пиши BSL, пока get_metadata_structure не ответил status=success."
             ),
         },
         {"role": "user", "content": prompt},
@@ -268,20 +276,24 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             continue
 
         if not tools_satisfied(trace):
+            searched = [step for step in trace if step.get("tool") == "search_metadata" and step.get("status") == "success"]
+            if searched:
+                hint = searched[-1].get("preview", "")
+                demand = (
+                    "Карточки ещё нет. Не ищи заново и не вызывай check_query. "
+                    "Вызови get_metadata_structure по первому имени из поиска. "
+                    f"Последний поиск: {hint}"
+                )
+            else:
+                demand = "Сначала вызови resolve_phrase и search_metadata. Карточку и BSL пока не пиши."
             messages.append({"role": "assistant", "content": content or ""})
-            messages.append({
-                "role": "user",
-                "content": (
-                    "BSL ещё нельзя выдавать. Сначала вызови search_metadata, затем get_metadata_structure. "
-                    "Текст запроса напиши только после успешных ответов MCP."
-                ),
-            })
+            messages.append({"role": "user", "content": demand})
             trace.append({
                 "actor": "host",
                 "tool": "require_mcp",
                 "arguments": {},
-                "status": "need_tools",
-                "preview": "модель пошла в BSL до MCP, запрос возвращён",
+                "status": "need_structure" if searched else "need_tools",
+                "preview": demand,
             })
             continue
 
