@@ -49,27 +49,51 @@ def extract_name(element):
             return child.text
     return None
 
+def extract_type(element):
+    types = []
+    for node in element.iter():
+        if clean_tag(node.tag) != "Type" or not node.text:
+            continue
+        raw = node.text.strip()
+        if raw.startswith("cfg:CatalogRef."):
+            types.append("Справочник." + raw.split(".", 1)[1])
+        elif raw.startswith("cfg:DocumentRef."):
+            types.append("Документ." + raw.split(".", 1)[1])
+        elif raw.startswith("cfg:EnumRef."):
+            types.append("Перечисление." + raw.split(".", 1)[1])
+        elif raw.startswith("cfg:ChartOfAccountsRef."):
+            types.append("ПланСчетов." + raw.split(".", 1)[1])
+        elif raw in ("xs:string", "xs:decimal", "xs:boolean", "xs:dateTime", "xs:int"):
+            types.append({"xs:string": "Строка", "xs:decimal": "Число", "xs:boolean": "Булево", "xs:dateTime": "Дата", "xs:int": "Число"}[raw])
+        elif raw:
+            types.append(raw)
+    return " | ".join(dict.fromkeys(types))
+
+
+def field_info(element):
+    name = extract_name(element)
+    if not name:
+        return None
+    return {"name": name, "synonym": extract_synonym(element), "type": extract_type(element)}
+
+
 def parse_tabular_section(ts_element):
-    """Парсит табличную часть и извлекает ее реквизиты из ChildObjects."""
     ts_name = extract_name(ts_element)
     ts_attrs = []
-    
-    # Ищем внутри ChildObjects или напрямую
+    ts_types = {}
     for child in ts_element:
         tag = clean_tag(child.tag)
-        if tag == "ChildObjects":
-            for ts_child in child:
-                ts_child_tag = clean_tag(ts_child.tag)
-                if ts_child_tag == "Attribute":
-                    attr_name = extract_name(ts_child)
-                    if attr_name:
-                        ts_attrs.append(attr_name)
-        elif tag == "Attribute":
-            attr_name = extract_name(child)
-            if attr_name:
-                ts_attrs.append(attr_name)
-                
-    return ts_name, ts_attrs
+        nodes = list(child) if tag == "ChildObjects" else ([child] if tag == "Attribute" else [])
+        for ts_child in nodes:
+            if clean_tag(ts_child.tag) != "Attribute":
+                continue
+            info = field_info(ts_child)
+            if not info:
+                continue
+            ts_attrs.append(info["name"])
+            if info["type"]:
+                ts_types[info["name"]] = info["type"]
+    return ts_name, ts_attrs, ts_types
 
 def parse_1c_xml_object(xml_file_path):
     """
@@ -104,6 +128,17 @@ def parse_1c_xml_object(xml_file_path):
     dimensions = []
     resources = []
     tabular_sections = {}
+    field_types = {}
+    field_synonyms = {}
+
+    def remember(info):
+        if not info:
+            return None
+        if info["type"]:
+            field_types[info["name"]] = info["type"]
+        if info["synonym"]:
+            field_synonyms[info["name"]] = info["synonym"]
+        return info["name"]
 
     # Получаем дочерние элементы объекта (обычно в ChildObjects)
     child_containers = []
@@ -121,27 +156,22 @@ def parse_1c_xml_object(xml_file_path):
             
             # Реквизиты
             if item_tag == "Attribute":
-                attr_name = extract_name(item)
+                attr_name = remember(field_info(item))
                 if attr_name:
                     attributes.append(attr_name)
-
-            # Измерения регистров
             elif item_tag == "Dimension":
-                dim_name = extract_name(item)
+                dim_name = remember(field_info(item))
                 if dim_name:
                     dimensions.append(dim_name)
-
-            # Ресурсы регистров
             elif item_tag == "Resource":
-                res_name = extract_name(item)
+                res_name = remember(field_info(item))
                 if res_name:
                     resources.append(res_name)
-
-            # Табличные части
             elif item_tag == "TabularSection":
-                ts_name, ts_attrs = parse_tabular_section(item)
+                ts_name, ts_attrs, ts_types = parse_tabular_section(item)
                 if ts_name:
                     tabular_sections[ts_name] = ts_attrs
+                    field_types.update({f"{ts_name}.{name}": value for name, value in ts_types.items()})
 
     # Формируем итоговую структуру объекта
     data = {}
@@ -153,6 +183,10 @@ def parse_1c_xml_object(xml_file_path):
         data["Ресурсы"] = resources
     if tabular_sections:
         data["ТабличныеЧасти"] = tabular_sections
+    if field_types:
+        data["Типы"] = field_types
+    if field_synonyms:
+        data["СинонимыПолей"] = field_synonyms
     synonym = extract_synonym(md_object)
     if synonym:
         data["Синоним"] = synonym
