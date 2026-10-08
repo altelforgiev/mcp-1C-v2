@@ -232,6 +232,25 @@ def review_prompt(prompt: str, bsl: str, card: dict) -> str:
     )
 
 
+def open_join_target(server: OneCMetadataMCPServer, trace: list, bsl: str):
+    if "левое соединение" not in (bsl or "").lower():
+        return
+    opened = " ".join((step.get("arguments") or {}).get("entity_name", "") for step in trace if step.get("tool") == "get_metadata_structure")
+    for card in opened_cards(trace, server):
+        for link in (card.get("structure") or {}).get("Связи") or []:
+            target = link.get("тип") or ""
+            if target and target.split(".")[-1].lower() not in opened.lower():
+                second = server.get_metadata_structure(target)
+                trace.append({
+                    "actor": "host",
+                    "tool": "get_metadata_structure",
+                    "arguments": {"entity_name": target},
+                    "status": second.get("status", "error"),
+                    "preview": preview_result(second),
+                })
+                return
+
+
 def opened_cards(trace: list, server: OneCMetadataMCPServer) -> list:
     cards = []
     seen = set()
@@ -322,6 +341,12 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 except json.JSONDecodeError:
                     arguments = {}
                 result = call_mcp_tool(server, name, arguments)
+                if name == "check_query":
+                    open_join_target(server, trace, arguments.get("bsl_code", ""))
+                    if result.get("status") != "error":
+                        result["reasons"] = list(result.get("reasons") or []) + server.check_join(arguments.get("bsl_code", ""), opened_cards(trace, server))
+                        result["ok"] = not result["reasons"]
+                        result["status"] = "success" if result["ok"] else "rejected"
                 if chosen and name == "resolve_phrase":
                     result = {
                         "status": "success",

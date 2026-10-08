@@ -76,12 +76,15 @@ class OneCMetadataMCPServer:
                 details = details if isinstance(details, dict) else {}
                 full_name = f"{cat}.{entity_name}"
                 matched_fields = []
-                haystack = f"{cat} {entity_name}".lower()
+                haystack = f"{cat} {entity_name} {details.get('Синоним', '')}".lower()
                 score = 0
+                synonym = str(details.get("Синоним") or "").lower()
                 if query_lower and query_lower in entity_name.lower():
                     score += 5
+                if synonym and any(token in synonym for token in tokens):
+                    score += 8
                 for token in tokens:
-                    if token in entity_name.lower():
+                    if token in entity_name.lower() or token.rstrip("аыи") in entity_name.lower():
                         score += 3
                     elif token in haystack:
                         score += 1
@@ -240,7 +243,20 @@ class OneCMetadataMCPServer:
         elif category == "Справочники":
             structure["ИмяВЗапросе"] = f"Справочник.{entity_name}"
             structure["СтандартныеРеквизиты"] = ["Ссылка", "Код", "Наименование"]
+        structure["Связи"] = OneCMetadataMCPServer._links(structure)
         return structure
+
+    @staticmethod
+    def _links(structure: Dict[str, Any]) -> List[Dict[str, str]]:
+        links = []
+        for field, type_name in (structure.get("Типы") or {}).items():
+            if str(type_name).startswith("Справочник.") or str(type_name).startswith("Документ."):
+                links.append({
+                    "поле": field,
+                    "тип": type_name,
+                    "условие": f"<источник>.{field} = <второй>.Ссылка",
+                })
+        return links[:8]
 
     def resolve_phrase(self, phrase: str) -> Dict[str, Any]:
         text = (phrase or "").lower()
@@ -275,7 +291,16 @@ class OneCMetadataMCPServer:
         structure = card.get("structure") or {}
         query_name = card.get("query_name") or ""
         if query_name and query_name not in text:
-            reasons.append(f"в тексте нет имени запроса {query_name}")
+            plural = text
+            for wrong, right in (("Справочники.", "Справочник."), ("Документы.", "Документ."), ("РегистрыНакопления.", "РегистрНакопления.")):
+                plural = plural.replace(wrong, right)
+            if plural != text:
+                reasons.append(f"замени множественное имя на {query_name}")
+            else:
+                reasons.append(f"в тексте нет имени запроса {query_name}")
+        links = structure.get("Связи") or []
+        if links and re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text, re.IGNORECASE):
+            reasons.append("связь не по Ссылка = Ссылка, а по " + links[0]["условие"])
         if re.search(r"выбрать\s+\*", text, re.IGNORECASE):
             columns = self._query_columns(structure)
             listed = ", ".join(columns[:8]) or "колонки карточки"
@@ -287,7 +312,8 @@ class OneCMetadataMCPServer:
                 select_part = text[:from_at.start()] if from_at else text
                 requested = re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", select_part)
                 skip = {"выбрать", "как", "различные"}
-                unknown = [name for name in requested if name.lower() not in columns and name.lower() not in skip]
+                aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)}
+                unknown = [name for name in requested if name.lower() not in columns and name.lower() not in skip and name.lower() not in aliases]
                 if unknown:
                     reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
         if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in text.lower():

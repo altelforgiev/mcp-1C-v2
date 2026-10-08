@@ -65,6 +65,15 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertFalse(checked["ok"])
         self.assertTrue(any("JOIN" in item for item in checked["reasons"]))
 
+    def test_plural_name_tells_replacement(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Юрлица.БИНИИН ИЗ Справочники.АВЮридическиеЛица КАК Юрлица",
+            "Справочники.АВЮридическиеЛица",
+        )
+        self.assertTrue(any("замени множественное имя" in item for item in checked["reasons"]))
+        self.assertFalse(any(item.startswith("полей нет") and "Юрлица" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()
