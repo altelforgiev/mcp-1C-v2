@@ -543,7 +543,20 @@ def llm_complete_openai(messages, tools, secrets):
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = json.loads(response.read().decode("utf-8"))
-    return body["choices"][0]["message"]
+    usage = body.get("usage") or {}
+    return body["choices"][0]["message"], {
+        "prompt_tokens": usage.get("prompt_tokens", 0),
+        "completion_tokens": usage.get("completion_tokens", 0),
+        "total_tokens": usage.get("total_tokens", 0),
+    }
+
+
+def append_board_log(entry: dict):
+    folder = os.path.join(ROOT, "data", "logs")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "board.jsonl")
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def build_http_handler(server, system_prompt):
@@ -593,8 +606,14 @@ def build_http_handler(server, system_prompt):
                 })
                 return
 
+            usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
             def complete(messages, tools):
-                return llm_complete_openai(messages, tools, secrets)
+                message, call_usage = llm_complete_openai(messages, tools, secrets)
+                usage["calls"] += 1
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    usage[key] += call_usage.get(key, 0)
+                return message
 
             try:
                 result = run_generation(prompt, server, complete, system_prompt, history)
@@ -616,6 +635,14 @@ def build_http_handler(server, system_prompt):
                     "parameters": [],
                     "architecture_comment": "Сбой цикла инструментов.",
                 }
+            result["usage"] = usage
+            append_board_log({
+                "time": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+                "prompt": prompt[:300],
+                "status": result.get("status"),
+                "model": secrets.get("OPENAI_MODEL", "gpt-4o"),
+                "usage": usage,
+            })
             self._json(result)
 
         def _json(self, payload):

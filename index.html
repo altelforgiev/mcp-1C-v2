@@ -45,6 +45,8 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                     <div class="bg-slate-900 p-3 rounded border border-slate-700" id="params-output">Параметры: -</div>
                     <div class="bg-slate-900 p-3 rounded border border-slate-700" id="arch-output">Архитектура: -</div>
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700" id="usage-output">Токены запроса: -</div>
+                    <div class="bg-slate-900 p-3 rounded border border-slate-700" id="usage-total">Токены сессии: 0</div>
                 </div>
             </div>
         </div>
@@ -73,6 +75,26 @@
         }
 
         const dialog = [];
+        const sessionUsage = {calls: 0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0};
+
+        function showUsage(usage) {
+            const current = usage || {};
+            document.getElementById("usage-output").textContent =
+                "Токены запроса: " + (current.total_tokens || 0)
+                + " (вход " + (current.prompt_tokens || 0)
+                + ", выход " + (current.completion_tokens || 0)
+                + ", вызовов " + (current.calls || 0) + ")";
+            sessionUsage.calls += current.calls || 0;
+            sessionUsage.prompt_tokens += current.prompt_tokens || 0;
+            sessionUsage.completion_tokens += current.completion_tokens || 0;
+            sessionUsage.total_tokens += current.total_tokens || 0;
+            document.getElementById("usage-total").textContent =
+                "Токены сессии: " + sessionUsage.total_tokens
+                + " (вход " + sessionUsage.prompt_tokens
+                + ", выход " + sessionUsage.completion_tokens
+                + ", вызовов " + sessionUsage.calls + ")";
+            addLog("[токены] " + (current.total_tokens || 0) + " за запрос, " + sessionUsage.total_tokens + " за сессию", "text-slate-300");
+        }
 
         function newDialog() {
             dialog.length = 0;
@@ -110,6 +132,7 @@
                 document.getElementById("code-output").textContent = data.bsl_code || "// пусто";
                 document.getElementById("params-output").textContent = "Параметры: " + ((data.parameters || []).join(", ") || "-");
                 document.getElementById("arch-output").textContent = "Архитектура: " + (data.architecture_comment || "-");
+                showUsage(data.usage);
                 addLog(data.status === "success" ? "[модель] BSL после MCP" : (data.status === "need_clarification" ? "[уточнение] " + (data.architecture_comment || "") : "[ошибка] BSL не принят"), data.status === "success" ? "text-emerald-400" : "text-red-400");
             } catch (err) {
                 addLog("[сеть] " + err.message, "text-red-400");
