@@ -74,6 +74,14 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertTrue(any("замени множественное имя" in item for item in checked["reasons"]))
         self.assertFalse(any(item.startswith("полей нет") and "Юрлица" in item for item in checked["reasons"]))
 
+    def test_qualifier_is_not_a_missing_field(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ АВЮридическиеЛица.БИНИИН ИЗ Справочник.АВЮридическиеЛица ЛЕВОЕ СОЕДИНЕНИЕ Справочник.АВДоговора ПО АВЮридическиеЛица.Договор = АВДоговора.Ссылка",
+            "Справочники.АВЮридическиеЛица",
+        )
+        self.assertFalse(any("АВЮридическиеЛица" in item and "полей нет" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

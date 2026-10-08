@@ -310,10 +310,23 @@ class OneCMetadataMCPServer:
             if columns:
                 from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
                 select_part = text[:from_at.start()] if from_at else text
-                requested = re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", select_part)
+                requested = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
                 skip = {"выбрать", "как", "различные"}
                 aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)}
-                unknown = [name for name in requested if name.lower() not in columns and name.lower() not in skip and name.lower() not in aliases]
+                synonyms = {value.lower(): key for key, value in (structure.get("СинонимыПолей") or {}).items()}
+                unknown = []
+                for name in requested:
+                    lowered_name = name.lower()
+                    if lowered_name in columns or lowered_name in skip or lowered_name in aliases:
+                        continue
+                    if lowered_name in synonyms:
+                        unknown.append(f"{name} → {synonyms[lowered_name]}")
+                    elif lowered_name == "бин" and "биниин" in columns:
+                        unknown.append("БИН → БИНИИН")
+                    else:
+                        unknown.append(name)
+                if unknown:
+                    reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
                 if unknown:
                     reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
         if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in text.lower():

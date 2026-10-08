@@ -236,19 +236,18 @@ def open_join_target(server: OneCMetadataMCPServer, trace: list, bsl: str):
     if "левое соединение" not in (bsl or "").lower():
         return
     opened = " ".join((step.get("arguments") or {}).get("entity_name", "") for step in trace if step.get("tool") == "get_metadata_structure")
-    for card in opened_cards(trace, server):
-        for link in (card.get("structure") or {}).get("Связи") or []:
-            target = link.get("тип") or ""
-            if target and target.split(".")[-1].lower() not in opened.lower():
-                second = server.get_metadata_structure(target)
-                trace.append({
-                    "actor": "host",
-                    "tool": "get_metadata_structure",
-                    "arguments": {"entity_name": target},
-                    "status": second.get("status", "error"),
-                    "preview": preview_result(second),
-                })
-                return
+    named = re.findall(r"(?:справочник|документ|регистрнакопления)\.([0-9A-Za-zА-Яа-яЁё_]+)", bsl or "", re.IGNORECASE)
+    for target in named:
+        if target.lower() not in opened.lower():
+            second = server.get_metadata_structure(target)
+            trace.append({
+                "actor": "host",
+                "tool": "get_metadata_structure",
+                "arguments": {"entity_name": target},
+                "status": second.get("status", "error"),
+                "preview": preview_result(second),
+            })
+            return
 
 
 def opened_cards(trace: list, server: OneCMetadataMCPServer) -> list:
