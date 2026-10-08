@@ -363,7 +363,7 @@ class OneCMetadataMCPServer:
         return list(structure.get("Реквизиты") or []) + list(structure.get("СтандартныеРеквизиты") or [])
 
     def check_join(self, bsl_code: str, cards: List[Dict[str, Any]]) -> List[str]:
-        text = bsl_code or ""
+        text = (bsl_code or "").replace('"', "")
         lowered = text.lower()
         if "соединение" not in lowered and "join" not in lowered:
             return []
@@ -382,7 +382,7 @@ class OneCMetadataMCPServer:
                 query_names.append(card["query_name"])
         from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
         select_part = text[:from_at.start()] if from_at else text
-        requested = re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", select_part)
+        requested = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
         skip = {"выбрать", "как", "различные"}
         unknown = [name for name in requested if name.lower() not in known and name.lower() not in skip]
         if unknown and known:

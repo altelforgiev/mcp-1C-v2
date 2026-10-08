@@ -82,6 +82,22 @@ class PhraseGuideTest(unittest.TestCase):
         )
         self.assertFalse(any("АВЮридическиеЛица" in item and "полей нет" in item for item in checked["reasons"]))
 
+    def test_ready_join_is_not_rejected_for_qualifiers(self):
+        server = OneCMetadataMCPServer(METADATA)
+        cards = [
+            server.get_metadata_structure("Справочники.АВЮридическиеЛица"),
+            server.get_metadata_structure("Справочники.АВДоговора"),
+        ]
+        text = (
+            "ВЫБРАТЬ АВЮридическиеЛица.БИНИИН, АВДоговора.Наименование "
+            "ИЗ Справочник.АВЮридическиеЛица "
+            "ЛЕВОЕ СОЕДИНЕНИЕ Справочник.АВДоговора "
+            "ПО АВДоговора.Ссылка = АВЮридическиеЛица.Договор"
+        )
+        reasons = server.check_join(text, cards)
+        self.assertFalse(any("АВЮридическиеЛица" in item for item in reasons))
+        self.assertFalse(any("АВДоговора" in item and "полей нет" in item for item in reasons))
+
 
 if __name__ == "__main__":
     unittest.main()
