@@ -177,6 +177,31 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     return reasons
 
 
+def chosen_candidate(prompt: str, history: list, server: OneCMetadataMCPServer):
+    original = ""
+    for item in history or []:
+        if item.get("role") == "клиент" and item.get("content"):
+            original = item["content"]
+            break
+    if not original:
+        return None
+    resolved = server.resolve_phrase(original)
+    if not resolved.get("need_clarification") or not choice_made(prompt, resolved):
+        return None
+    text = (prompt or "").lower()
+    for item in resolved.get("candidates", []):
+        short = item.get("object", "").split(".")[-1].lower()
+        if short and short in text:
+            return item
+    if "регистр" in text or "оборот" in text:
+        return next((item for item in resolved["candidates"] if item["object"].startswith("Регистры")), None)
+    if "документ выбытия" in text:
+        return next((item for item in resolved["candidates"] if "ВыбытиеАктивов" in item["object"]), None)
+    if "юридическ" in text or "юрлицу" in text:
+        return next((item for item in resolved["candidates"] if "ЮрЛицу" in item["object"]), None)
+    return None
+
+
 def choice_made(prompt: str, resolved: dict) -> bool:
     text = (prompt or "").lower()
     hits = []
@@ -244,6 +269,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
         f"{item.get('role', 'клиент')}: {item.get('content', '')}" for item in history if item.get("content")
     )
     user_text = prompt if not dialog else f"История диалога:\n{dialog}\nТекущий ответ клиента: {prompt}"
+    chosen = chosen_candidate(prompt, history, server)
     messages = [
         {
             "role": "system",
@@ -282,6 +308,18 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 except json.JSONDecodeError:
                     arguments = {}
                 result = call_mcp_tool(server, name, arguments)
+                if chosen and name == "resolve_phrase":
+                    result = {
+                        "status": "success",
+                        "need_clarification": False,
+                        "preferred": chosen.get("object"),
+                        "query_name": chosen.get("query_name"),
+                        "period": chosen.get("period"),
+                        "question": "выбор уже сделан",
+                    }
+                if chosen and name == "get_metadata_structure" and chosen.get("object", "").split(".")[-1].lower() not in (arguments.get("entity_name") or "").lower():
+                    arguments = {"entity_name": chosen["object"]}
+                    result = server.get_metadata_structure(chosen["object"])
                 if name == "resolve_phrase" and result.get("need_clarification") and not choice_made(prompt, result):
                     names = ", ".join(item.get("object", "") for item in result.get("candidates", []))
                     trace.append({
@@ -302,7 +340,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     }
                 has_card = any(step.get("tool") == "get_metadata_structure" and step.get("status") == "success" for step in trace)
                 if name == "check_query" and not has_card:
-                    entity_name = arguments.get("entity_name") or ""
+                    entity_name = (chosen or {}).get("object") or arguments.get("entity_name") or ""
                     card = server.get_metadata_structure(entity_name)
                     trace.append({
                         "actor": "host",
@@ -324,7 +362,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                         "tool_call_id": call.get("id", name),
                         "content": json.dumps(result, ensure_ascii=False),
                     })
-                    if result.get("ok"):
+                    if result.get("ok") and (not chosen or chosen.get("query_name") in arguments.get("bsl_code", "")):
                         return {
                             "status": "success",
                             "prompt": prompt,
