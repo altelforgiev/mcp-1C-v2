@@ -408,7 +408,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                             "trace": trace,
                             "bsl_code": arguments.get("bsl_code", ""),
                             "parameters": re.findall(r"&[0-9A-Za-zА-Яа-яЁё_]+", arguments.get("bsl_code", "")),
-                            "architecture_comment": "Карточку открыл хост, текст оставил модель. check_query прошёл.",
+                            "architecture_comment": "check_query прошёл, повторная правка текста не выполняется.",
                             "schema": "client -> model -> mcp -> bsl",
                         }
                     continue
@@ -424,6 +424,16 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     "tool_call_id": call.get("id", name),
                     "content": json.dumps(result, ensure_ascii=False),
                 })
+                if name == "check_query" and result.get("ok"):
+                    return {
+                        "status": "success",
+                        "prompt": prompt,
+                        "trace": trace,
+                        "bsl_code": arguments.get("bsl_code", ""),
+                        "parameters": re.findall(r"&[0-9A-Za-zА-Яа-яЁё_]+", arguments.get("bsl_code", "")),
+                        "architecture_comment": "check_query прошёл, повторная правка текста не выполняется.",
+                        "schema": "client -> model -> mcp -> bsl",
+                    }
             continue
 
         if not tools_satisfied(trace):
