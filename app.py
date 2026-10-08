@@ -177,6 +177,20 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     return reasons
 
 
+def choice_made(prompt: str, resolved: dict) -> bool:
+    text = (prompt or "").lower()
+    hits = []
+    for item in resolved.get("candidates", []):
+        short = item.get("object", "").split(".")[-1].lower()
+        if short and short in text:
+            hits.append(short)
+    if "документ выбытия" in text or "выбытие активов" in text and "реализац" not in text:
+        hits.append("disposal")
+    if "юридическ" in text or "юрлицу" in text:
+        hits.append("sale")
+    return len(set(hits)) == 1
+
+
 def review_prompt(prompt: str, bsl: str, card: dict) -> str:
     return (
         "Проверь и при необходимости исправь свой BSL. Карточка MCP уже получена, инструменты не вызывай.\n"
@@ -219,10 +233,15 @@ def preview_result(result: dict) -> str:
     return "ok"
 
 
-def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, system_prompt: str) -> dict:
+def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, system_prompt: str, history: list = None) -> dict:
     """Цепочка: запрос клиента → модель → MCP tools/call → BSL. Поиск до модели не выполняется."""
     trace = []
     reviewed = False
+    history = history or []
+    dialog = "\n".join(
+        f"{item.get('role', 'клиент')}: {item.get('content', '')}" for item in history if item.get("content")
+    )
+    user_text = prompt if not dialog else f"История диалога:\n{dialog}\nТекущий ответ клиента: {prompt}"
     messages = [
         {
             "role": "system",
@@ -238,7 +257,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "Не пиши BSL, пока get_metadata_structure не ответил status=success."
             ),
         },
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": user_text},
     ]
 
     for _ in range(MAX_TOOL_ROUNDS):
@@ -261,7 +280,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 except json.JSONDecodeError:
                     arguments = {}
                 result = call_mcp_tool(server, name, arguments)
-                if name == "resolve_phrase" and result.get("need_clarification"):
+                if name == "resolve_phrase" and result.get("need_clarification") and not choice_made(prompt, result):
                     names = ", ".join(item.get("object", "") for item in result.get("candidates", []))
                     trace.append({
                         "actor": "model",
@@ -469,6 +488,7 @@ def build_http_handler(server, system_prompt):
             length = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(length).decode("utf-8"))
             prompt = data.get("prompt", "").strip()
+            history = data.get("history") or []
             secrets = load_secrets()
             if not secrets.get("OPENAI_API_KEY"):
                 self._json({
@@ -485,7 +505,7 @@ def build_http_handler(server, system_prompt):
                 return llm_complete_openai(messages, tools, secrets)
 
             try:
-                result = run_generation(prompt, server, complete, system_prompt)
+                result = run_generation(prompt, server, complete, system_prompt, history)
             except urllib.error.URLError as exc:
                 result = {
                     "status": "error",

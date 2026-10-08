@@ -31,7 +31,10 @@
             <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
                 <h2 class="font-semibold">Запрос клиента</h2>
                 <textarea id="prompt-input" rows="3" placeholder="Например: остатки товаров на складах за период" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm"></textarea>
-                <button onclick="generateQuery()" id="btn-generate" class="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2 rounded-lg text-sm">Сгенерировать BSL</button>
+                <div class="flex gap-2">
+                    <button onclick="generateQuery()" id="btn-generate" class="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2 rounded-lg text-sm">Сгенерировать BSL</button>
+                    <button onclick="newDialog()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg text-sm">Новый диалог</button>
+                </div>
             </div>
             <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
                 <div class="flex justify-between">
@@ -69,21 +72,33 @@
             navigator.clipboard.writeText(document.getElementById("code-output").textContent);
         }
 
+        const dialog = [];
+
+        function newDialog() {
+            dialog.length = 0;
+            document.getElementById("prompt-input").value = "";
+            document.getElementById("mcp-logs").innerHTML = "<div>Новый диалог. Ожидание запроса клиента.</div>";
+            document.getElementById("code-output").textContent = "// здесь появится текст запроса";
+            document.getElementById("params-output").textContent = "Параметры: -";
+            document.getElementById("arch-output").textContent = "Архитектура: -";
+        }
+
         async function generateQuery() {
             const prompt = document.getElementById("prompt-input").value.trim();
             if (!prompt) return;
             const btn = document.getElementById("btn-generate");
             btn.disabled = true;
-            document.getElementById("mcp-logs").innerHTML = "";
             addLog("[клиент] " + prompt, "text-amber-300");
             addLog("[модель] запрос ушёл в модель, MCP ещё не вызывался", "text-slate-300");
             try {
                 const res = await fetch("/generate", {
                     method: "POST",
                     headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({prompt})
+                    body: JSON.stringify({prompt, history: dialog})
                 });
                 const data = await res.json();
+                dialog.push({role: "клиент", content: prompt});
+                if (data.architecture_comment) dialog.push({role: "доска", content: data.architecture_comment});
                 (data.trace || []).forEach((step) => {
                     if (step.tool === "require_mcp") {
                         addLog("[хост] " + (step.preview || "нужна карточка MCP"), "text-red-400");
@@ -99,6 +114,7 @@
             } catch (err) {
                 addLog("[сеть] " + err.message, "text-red-400");
             } finally {
+                document.getElementById("prompt-input").value = "";
                 btn.disabled = false;
             }
         }
