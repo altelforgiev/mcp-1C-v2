@@ -17,6 +17,7 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertTrue(found["need_clarification"])
         objects = [item["object"] for item in found["candidates"]]
         self.assertIn("Документы.АВВыбытиеАктивов", objects)
+        self.assertIn("РегистрыНакопления.АВАктивы", objects)
         self.assertNotIn("Документы.АВПриказОВыбытии", objects)
         self.assertTrue(any(item["object"] == "Документы.АВПриказОВыбытии" for item in found["not"]))
 

@@ -188,6 +188,8 @@ def choice_made(prompt: str, resolved: dict) -> bool:
         hits.append("disposal")
     if "юридическ" in text or "юрлицу" in text:
         hits.append("sale")
+    if "регистр" in text or "оборот" in text:
+        hits.append("register")
     return len(set(hits)) == 1
 
 
