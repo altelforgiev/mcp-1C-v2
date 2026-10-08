@@ -228,7 +228,8 @@ def review_prompt(prompt: str, bsl: str, card: dict) -> str:
         "для одной выборки остатков нет ПОМЕСТИТЬ и УНИЧТОЖИТЬ; дата не строкой в ГДЕ; "
         "поля только из колонок карточки. "
         "Верни строго JSON с bsl_code, parameters, architecture_comment. "
-        "Если исправить нельзя, bsl_code оставь пустым и напиши причину в architecture_comment."
+        "Если исправить нельзя, потому что нет карточки, bsl_code оставь пустым. "
+        "Если отказ называет одну замену, исправь текст и верни его, не оставляй bsl_code пустым."
     )
 
 
@@ -463,8 +464,9 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
         if not reviewed:
             reviewed = True
             card = last_card(trace, server)
+            rejected = [step.get("preview", "") for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected"]
             messages.append({"role": "assistant", "content": content or ""})
-            messages.append({"role": "user", "content": review_prompt(prompt, bsl, card)})
+            messages.append({"role": "user", "content": review_prompt(prompt, bsl, card) + ("\nОтказ хоста: " + rejected[-1] if rejected else "")})
             trace.append({
                 "actor": "model",
                 "tool": "review_bsl",

@@ -287,20 +287,21 @@ class OneCMetadataMCPServer:
         if card.get("status") != "success":
             return card
         reasons = []
-        text = bsl_code or ""
+        text = (bsl_code or "").replace('"', "")
         structure = card.get("structure") or {}
         query_name = card.get("query_name") or ""
         if query_name and query_name not in text:
-            plural = text
-            for wrong, right in (("Справочники.", "Справочник."), ("Документы.", "Документ."), ("РегистрыНакопления.", "РегистрНакопления.")):
-                plural = plural.replace(wrong, right)
-            if plural != text:
-                reasons.append(f"замени множественное имя на {query_name}")
+            if any(token in text for token in ("Справочники.", "Документы.", "РегистрыНакопления.")):
+                reasons.append(f"после ИЗ пиши {query_name}; в списке полей это имя не повторяй")
             else:
                 reasons.append(f"в тексте нет имени запроса {query_name}")
         links = structure.get("Связи") or []
         if links and re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text, re.IGNORECASE):
             reasons.append("связь не по Ссылка = Ссылка, а по " + links[0]["условие"])
+        from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
+        select_part = text[:from_at.start()] if from_at else text
+        if re.search(r"справочник\.|документ\.|регистрнакопления\.", select_part, re.IGNORECASE):
+            reasons.append("в списке полей не пиши Справочник. или Документ.; только псевдоним.Поле")
         if re.search(r"выбрать\s+\*", text, re.IGNORECASE):
             columns = self._query_columns(structure)
             listed = ", ".join(columns[:8]) or "колонки карточки"
@@ -311,7 +312,7 @@ class OneCMetadataMCPServer:
                 from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
                 select_part = text[:from_at.start()] if from_at else text
                 requested = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
-                skip = {"выбрать", "как", "различные"}
+                skip = {"выбрать", "как", "различные", "справочник", "документ", "регистрнакопления"}
                 aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)}
                 synonyms = {value.lower(): key for key, value in (structure.get("СинонимыПолей") or {}).items()}
                 unknown = []
@@ -325,8 +326,6 @@ class OneCMetadataMCPServer:
                         unknown.append("БИН → БИНИИН")
                     else:
                         unknown.append(name)
-                if unknown:
-                    reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
                 if unknown:
                     reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
         if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in text.lower():

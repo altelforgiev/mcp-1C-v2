@@ -71,7 +71,7 @@ class PhraseGuideTest(unittest.TestCase):
             "ВЫБРАТЬ Юрлица.БИНИИН ИЗ Справочники.АВЮридическиеЛица КАК Юрлица",
             "Справочники.АВЮридическиеЛица",
         )
-        self.assertTrue(any("замени множественное имя" in item for item in checked["reasons"]))
+        self.assertTrue(any("после ИЗ пиши" in item for item in checked["reasons"]))
         self.assertFalse(any(item.startswith("полей нет") and "Юрлица" in item for item in checked["reasons"]))
 
     def test_qualifier_is_not_a_missing_field(self):
