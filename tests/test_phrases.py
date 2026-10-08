@@ -38,6 +38,15 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertFalse(checked["ok"])
         self.assertTrue(any("ВЫБРАТЬ *" in item for item in checked["reasons"]))
 
+    def test_warehouse_fields_rejected_for_asset_register(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Товар, Склад, Количество ИЗ РегистрНакопления.АВАктивы.Обороты(&НачалоПериода, &КонецПериода, , ) КАК Обороты",
+            "РегистрыНакопления.АВАктивы",
+        )
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("Товар" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

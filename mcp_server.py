@@ -277,9 +277,19 @@ class OneCMetadataMCPServer:
         if query_name and query_name not in text:
             reasons.append(f"в тексте нет имени запроса {query_name}")
         if re.search(r"выбрать\s+\*", text, re.IGNORECASE):
-            columns = (structure.get("ВиртуальныеТаблицы") or {}).get("Обороты", {}).get("колонки") or (structure.get("ВиртуальныеТаблицы") or {}).get("Остатки", {}).get("колонки") or []
+            columns = self._query_columns(structure)
             listed = ", ".join(columns[:8]) or "колонки карточки"
             reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")
+        else:
+            columns = [name.lower() for name in self._query_columns(structure)]
+            if columns:
+                from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
+                select_part = text[:from_at.start()] if from_at else text
+                requested = re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", select_part)
+                skip = {"выбрать", "как", "различные"}
+                unknown = [name for name in requested if name.lower() not in columns and name.lower() not in skip]
+                if unknown:
+                    reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
         if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
             reasons.append("имя категории во множественном числе, нужно имя из query_name")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
@@ -297,6 +307,15 @@ class OneCMetadataMCPServer:
             "query_name": query_name,
             "reasons": reasons,
         }
+
+    @staticmethod
+    def _query_columns(structure: Dict[str, Any]) -> List[str]:
+        virtual = structure.get("ВиртуальныеТаблицы") or {}
+        for name in ("Обороты", "Остатки"):
+            columns = (virtual.get(name) or {}).get("колонки") or []
+            if columns:
+                return columns
+        return list(structure.get("Реквизиты") or []) + list(structure.get("СтандартныеРеквизиты") or [])
 
     def _phrase_rules(self) -> List[Dict[str, Any]]:
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "phrases.json")
