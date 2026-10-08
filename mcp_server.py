@@ -290,6 +290,11 @@ class OneCMetadataMCPServer:
                 unknown = [name for name in requested if name.lower() not in columns and name.lower() not in skip]
                 if unknown:
                     reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
+        if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in text.lower():
+            select_part = text.split(" ИЗ ")[0].lower() if " ИЗ " in text.upper() else text.lower()
+            missing = [name for name in ("Актив", "Учреждение", "ВидАктива") if name.lower() not in select_part]
+            if missing:
+                reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
         if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
             reasons.append("имя категории во множественном числе, нужно имя из query_name")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)

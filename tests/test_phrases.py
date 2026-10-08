@@ -47,6 +47,15 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertFalse(checked["ok"])
         self.assertTrue(any("Товар" in item for item in checked["reasons"]))
 
+    def test_asset_turnovers_need_dimensions(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Сумма, Количество ИЗ РегистрНакопления.АВАктивы.Обороты(&НачалоПериода, &КонецПериода, , ) КАК Обороты",
+            "РегистрыНакопления.АВАктивы",
+        )
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("Актив" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()
