@@ -232,6 +232,20 @@ def review_prompt(prompt: str, bsl: str, card: dict) -> str:
     )
 
 
+def opened_cards(trace: list, server: OneCMetadataMCPServer) -> list:
+    cards = []
+    seen = set()
+    for step in trace:
+        if step.get("tool") != "get_metadata_structure" or step.get("status") != "success":
+            continue
+        entity_name = (step.get("arguments") or {}).get("entity_name", "")
+        if not entity_name or entity_name in seen:
+            continue
+        seen.add(entity_name)
+        cards.append(server.get_metadata_structure(entity_name))
+    return cards
+
+
 def last_card(trace: list, server: OneCMetadataMCPServer) -> dict:
     for step in reversed(trace):
         if step.get("tool") == "get_metadata_structure" and step.get("status") == "success":
@@ -442,9 +456,11 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             names = ", ".join(item.get("object", "") for item in resolved.get("candidates", []))
             reasons.append(resolved.get("question") or f"нужно уточнение: {names}")
         card = last_card(trace, server)
-        if card.get("status") == "success" and " из " in f" {bsl.lower()} ":
+        cards = opened_cards(trace, server)
+        if card.get("status") == "success" and re.search(r"\bиз\b", bsl, re.IGNORECASE):
             checked = server.check_query(bsl, card.get("full_name", ""))
             reasons.extend(checked.get("reasons", []))
+            reasons.extend(server.check_join(bsl, cards))
         comment = parsed.get("architecture_comment", "")
         if reasons:
             comment = "Не принято после проверки модели: " + "; ".join(reasons)

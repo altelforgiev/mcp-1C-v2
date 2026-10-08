@@ -297,6 +297,8 @@ class OneCMetadataMCPServer:
                 reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
         if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
             reasons.append("имя категории во множественном числе, нужно имя из query_name")
+        if re.search(r"\bjoin\b|\bon\b", text, re.IGNORECASE):
+            reasons.append("JOIN и ON нельзя: нужно ЛЕВОЕ СОЕДИНЕНИЕ и ПО по типу ссылки")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
         if alias:
             from_at = re.search(r"\bИЗ\b", text, re.IGNORECASE)
@@ -321,6 +323,44 @@ class OneCMetadataMCPServer:
             if columns:
                 return columns
         return list(structure.get("Реквизиты") or []) + list(structure.get("СтандартныеРеквизиты") or [])
+
+    def check_join(self, bsl_code: str, cards: List[Dict[str, Any]]) -> List[str]:
+        text = bsl_code or ""
+        lowered = text.lower()
+        if "соединение" not in lowered and "join" not in lowered:
+            return []
+        reasons = []
+        if "левое соединение" not in lowered:
+            reasons.append("соединение должно быть ЛЕВОЕ СОЕДИНЕНИЕ")
+        if not re.search(r"\bпо\b", lowered):
+            reasons.append("нет ПО")
+        known = []
+        query_names = []
+        for card in cards:
+            if card.get("status") != "success":
+                continue
+            known.extend(name.lower() for name in self._query_columns(card.get("structure") or {}))
+            if card.get("query_name"):
+                query_names.append(card["query_name"])
+        from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
+        select_part = text[:from_at.start()] if from_at else text
+        requested = re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", select_part)
+        skip = {"выбрать", "как", "различные"}
+        unknown = [name for name in requested if name.lower() not in known and name.lower() not in skip]
+        if unknown and known:
+            reasons.append("полей нет в открытых карточках: " + ", ".join(dict.fromkeys(unknown)))
+        link_ok = False
+        for card in cards:
+            types = (card.get("structure") or {}).get("Типы") or {}
+            for field, type_name in types.items():
+                if not str(type_name).startswith("Справочник.") and not str(type_name).startswith("Документ."):
+                    continue
+                if any(type_name == item or type_name in item for item in query_names):
+                    if field.lower() in lowered and "ссылка" in lowered:
+                        link_ok = True
+        if cards and any((card.get("structure") or {}).get("Типы") for card in cards) and not link_ok:
+            reasons.append("ПО должно связывать реквизит типа ссылки со Ссылка второй таблицы")
+        return reasons
 
     def _phrase_rules(self) -> List[Dict[str, Any]]:
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "phrases.json")

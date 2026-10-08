@@ -56,6 +56,15 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertFalse(checked["ok"])
         self.assertTrue(any("Актив" in item for item in checked["reasons"]))
 
+    def test_sql_join_is_rejected(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Юрлица.БИНИИН ИЗ Справочники.АВЮридическиеЛица КАК Юрлица JOIN Справочники.АВДоговора ON Юрлица.ДатаДоговора = АВДоговора.Дата",
+            "Справочники.АВЮридическиеЛица",
+        )
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("JOIN" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()
