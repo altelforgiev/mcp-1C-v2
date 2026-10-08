@@ -29,6 +29,15 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertTrue(any("query_name" in item or "имени запроса" in item for item in checked["reasons"]))
         self.assertTrue(any("псевдоним" in item for item in checked["reasons"]))
 
+    def test_star_select_is_rejected(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ * ИЗ РегистрНакопления.АВАктивы.Обороты(&НачалоПериода, &КонецПериода, , ) КАК Обороты",
+            "РегистрыНакопления.АВАктивы",
+        )
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("ВЫБРАТЬ *" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

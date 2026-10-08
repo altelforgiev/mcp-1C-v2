@@ -272,9 +272,14 @@ class OneCMetadataMCPServer:
             return card
         reasons = []
         text = bsl_code or ""
+        structure = card.get("structure") or {}
         query_name = card.get("query_name") or ""
         if query_name and query_name not in text:
             reasons.append(f"в тексте нет имени запроса {query_name}")
+        if re.search(r"выбрать\s+\*", text, re.IGNORECASE):
+            columns = (structure.get("ВиртуальныеТаблицы") or {}).get("Обороты", {}).get("колонки") or (structure.get("ВиртуальныеТаблицы") or {}).get("Остатки", {}).get("колонки") or []
+            listed = ", ".join(columns[:8]) or "колонки карточки"
+            reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")
         if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
             reasons.append("имя категории во множественном числе, нужно имя из query_name")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
