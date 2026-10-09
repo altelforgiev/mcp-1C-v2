@@ -190,3 +190,15 @@ class TabularSourceTest(unittest.TestCase):
         self.assertIn("Документ.АВСписаниеЗапасов.Запасы", joined)
         self.assertIn("Реквизиты", joined)
         self.assertIn("ТабличнаяЧасть", joined)
+
+
+class ProjectedCardTest(unittest.TestCase):
+    def test_button_card_hides_header_dump(self):
+        from app import project_card
+        server = OneCMetadataMCPServer(METADATA)
+        card = server.get_metadata_structure("Документы.АВСписаниеЗапасов")
+        text = project_card(card, "списание запасов за сентябрь 2025")
+        self.assertIn("Документ.АВСписаниеЗапасов.Запасы", text)
+        self.assertIn("Товар", text)
+        self.assertNotIn("УдалитьАвтор", text)
+        self.assertIn("resolve_phrase не вызывать", text)

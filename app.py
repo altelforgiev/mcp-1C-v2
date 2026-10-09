@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from mcp_server import OneCMetadataMCPServer, split_statements
+from mcp_server import OneCMetadataMCPServer, split_statements, stem_token
 
 PORT = int(os.environ.get("PORT", 8000))
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -238,6 +238,68 @@ def matching_candidates(prompt: str, resolved: dict) -> list:
     return []
 
 
+
+def client_phrase(prompt: str, history: list) -> str:
+    for item in history or []:
+        if item.get("role") == "клиент" and item.get("content"):
+            return item["content"]
+    return prompt or ""
+
+
+def project_card(card: dict, phrase: str) -> str:
+    """Урезанная карточка: стандарты, поля фразы и одна табличная часть. Всю шапку не отдаём."""
+    structure = card.get("structure") or {}
+    stems = {stem_token(token) for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", (phrase or "").lower())}
+    stems = {item for item in stems if len(item) >= 4 and item not in {"январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"}}
+    synonyms = structure.get("СинонимыПолей") or {}
+    lines = [
+        f"Объект уже выбран: {card.get('full_name')}",
+        f"Имя в запросе: {card.get('query_name')}",
+        "Поиск и resolve_phrase не вызывать.",
+    ]
+    standards = [name for name in (structure.get("СтандартныеРеквизиты") or []) if name in ("Ссылка", "Дата", "Номер")]
+    if standards:
+        lines.append("Стандартные поля: " + ", ".join(standards))
+    tabular = structure.get("ТабличныеЧасти") or {}
+
+    def hits(name: str) -> bool:
+        blob = f"{name} {synonyms.get(name, '')}".lower()
+        return any(item in blob or item in stem_token(name) for item in stems)
+
+    shown = False
+    for ts_name, fields in tabular.items():
+        matched = [name for name in fields if not name.lower().startswith("удалить") and "счет" not in name.lower() and hits(name)]
+        preferred = [name for name in fields if name.lower() in ("товар", "количество", "сумма")]
+        if preferred and (not matched or any(item in stems for item in ("запас", "списан", "товар"))):
+            matched = preferred
+        elif not matched and len(tabular) == 1:
+            matched = preferred
+        if not matched:
+            continue
+        shown = True
+        lines.append(f"Табличная часть {ts_name}: " + ", ".join(matched[:8]))
+        lines.append(
+            "Образец формы, имена подставь из карточки:\n"
+            "ВЫБРАТЬ\n"
+            "    Документ.Дата,\n"
+            f"    {ts_name}.{matched[0]}\n"
+            "ИЗ\n"
+            f"    {card.get('query_name')} КАК Документ\n"
+            f"        ЛЕВОЕ СОЕДИНЕНИЕ {card.get('query_name')}.{ts_name} КАК {ts_name}\n"
+            f"        ПО Документ.Ссылка = {ts_name}.Ссылка\n"
+            "ГДЕ\n"
+            "    Документ.Дата МЕЖДУ &НачалоПериода И &КонецПериода"
+        )
+        break
+    header = [name for name in (structure.get("Реквизиты") or []) if not name.lower().startswith("удалить") and hits(name)]
+    if header:
+        lines.append("Реквизиты шапки по фразе: " + ", ".join(header[:6]))
+    if not shown and not header:
+        lines.append("Полей по фразе нет: не выгружай шапку, возьми Дата и Номер.")
+    lines.append("Служебные реквизиты Удалить* не писать. Период документа только по Дата.")
+    return "\n".join(lines)
+
+
 def chosen_candidate(prompt: str, history: list, server: OneCMetadataMCPServer):
     original = ""
     for item in history or []:
@@ -342,26 +404,58 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
     )
     user_text = prompt if not dialog else f"История диалога:\n{dialog}\nТекущий ответ клиента: {prompt}"
     chosen = chosen_candidate(prompt, history, server)
+    direct_card = None
+    if chosen:
+        direct_card = server.get_metadata_structure(chosen.get("object", ""))
+        trace.append({
+            "actor": "host",
+            "tool": "get_metadata_structure",
+            "arguments": {"entity_name": chosen.get("object", "")},
+            "status": direct_card.get("status", "error"),
+            "preview": preview_result(direct_card),
+        })
+        if direct_card.get("status") != "success":
+            return {
+                "status": "error",
+                "prompt": prompt,
+                "trace": trace,
+                "bsl_code": "// Карточка выбранного объекта не открылась.",
+                "parameters": [],
+                "architecture_comment": direct_card.get("message", "нет карточки"),
+            }
+        trace.append({
+            "actor": "host",
+            "tool": "search_metadata",
+            "arguments": {},
+            "status": "success",
+            "preview": "поиск пропущен, объект выбран кнопкой",
+        })
+    scheme = (
+        "Объект уже выбран хостом. resolve_phrase и search_metadata не вызывать. "
+        "Напиши один текст запроса по урезанной карточке и сдай его в check_query."
+        if chosen else
+        "1. resolve_phrase по фразе клиента.\n"
+        "2. search_metadata по ключевым словам.\n"
+        "3. get_metadata_structure по имени из поиска. До карточки check_query не вызывать.\n"
+        "4. Черновик пиши из query_name карточки, затем check_query.\n"
+        "5. Только после карточки верни JSON с bsl_code, parameters, architecture_comment.\n"
+        "Не пиши BSL, пока get_metadata_structure не ответил status=success."
+    )
     messages = [
         {
             "role": "system",
             "content": (
                 f"{system_prompt}\n\n"
-                "СХЕМА ЭТОГО ЗАПРОСА:\n"
-                "1. resolve_phrase по фразе клиента.\n"
-                "2. search_metadata по ключевым словам.\n"
-                "3. get_metadata_structure по имени из поиска. До карточки check_query не вызывать.\n"
-                "4. Черновик пиши из query_name карточки, затем check_query.\n"
-                "5. Только после карточки верни JSON с bsl_code, parameters, architecture_comment.\n"
-                "Для остатков источник: РегистрНакопления.<имя>.Остатки(&ДатаОстатков, ) КАК Остатки.\n"
-                "Не пиши BSL, пока get_metadata_structure не ответил status=success."
+                f"СХЕМА ЭТОГО ЗАПРОСА:\n{scheme}\n"
+                "Для остатков источник: РегистрНакопления.<имя>.Остатки(&ДатаОстатков, ) КАК Остатки."
             ),
         },
-        {"role": "user", "content": user_text},
+        {"role": "user", "content": user_text if not chosen else user_text + "\n\n" + project_card(direct_card, client_phrase(prompt, history))},
     ]
+    tool_set = [item for item in openai_tools() if item["function"]["name"] == "check_query"] if chosen else openai_tools()
 
     for _ in range(MAX_TOOL_ROUNDS):
-        message = llm_complete(messages, [] if reviewed else openai_tools())
+        message = llm_complete(messages, [] if reviewed else tool_set)
         tool_calls = message.get("tool_calls") or []
         content = message.get("content") or ""
 
@@ -483,6 +577,9 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                         "architecture_comment": "check_query прошёл, повторная правка текста не выполняется.",
                         "schema": "client -> model -> mcp -> bsl",
                     }
+                if chosen and name == "check_query" and not result.get("ok"):
+                    tool_set = []
+                    messages.append({"role": "user", "content": "Инструменты больше не вызывай. Верни JSON с исправленным bsl_code по отказу."})
             continue
 
         if not tools_satisfied(trace):
