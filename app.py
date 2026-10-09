@@ -63,6 +63,18 @@ def openai_tools():
         {
             "type": "function",
             "function": {
+                "name": "get_metadata_structure",
+                "description": "Карточка одного объекта после поиска. До неё BSL не писать.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"entity_name": {"type": "string"}},
+                    "required": ["entity_name"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "resolve_phrase",
                 "description": "Развилка фразы клиента. Вызывай первым. При need_clarification BSL не писать.",
                 "parameters": {
@@ -209,7 +221,7 @@ def choice_made(prompt: str, resolved: dict) -> bool:
         short = item.get("object", "").split(".")[-1].lower()
         if short and short in text:
             hits.append(short)
-    if "документ выбытия" in text or "выбытие активов" in text and "реализац" not in text:
+    if ("документ выбытия" in text or "выбытие активов" in text) and "реализац" not in text:
         hits.append("disposal")
     if "юридическ" in text or "юрлицу" in text:
         hits.append("sale")
