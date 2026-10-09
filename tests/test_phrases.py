@@ -135,3 +135,25 @@ class StockWriteoffPhraseTest(unittest.TestCase):
         self.assertEqual(objects, ["Документы.АВСписаниеЗапасов", "Документы.АВСписаниеСпецзапасов"])
         search = server.search_metadata("списанные запасы")
         self.assertEqual(search["results"][0]["entity_name"], "АВСписаниеЗапасов")
+
+
+class StatementSplitTest(unittest.TestCase):
+    def test_nested_from_is_not_the_field_boundary(self):
+        from mcp_server import field_section, split_statements
+        text = """ВЫБРАТЬ
+    (ВЫБРАТЬ Сумма ИЗ РегистрНакопления.АВАктивы.Остатки(&ДатаОстатков, )) КАК Вложенная,
+    Документ.Номер
+ИЗ
+    Документ.АВСписаниеЗапасов КАК Документ;
+УНИЧТОЖИТЬ Временная"""
+        statements = split_statements(text)
+        self.assertEqual(len(statements), 2)
+        fields = field_section(statements[0])
+        self.assertIn("Документ.Номер", fields)
+        self.assertIn("ВЫБРАТЬ Сумма ИЗ", fields)
+        self.assertNotIn("АВСписаниеЗапасов", fields)
+
+    def test_semicolon_inside_string_does_not_split(self):
+        from mcp_server import split_statements
+        text = 'ВЫБРАТЬ "а;б" КАК Поле ИЗ Справочник.Контрагенты КАК Контрагенты'
+        self.assertEqual(len(split_statements(text)), 1)

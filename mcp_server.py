@@ -46,6 +46,85 @@ def resolve_metadata_path(explicit: Optional[str] = None) -> str:
     return configured if os.path.isabs(configured) else os.path.join(ROOT, configured)
 
 
+
+def split_statements(text: str) -> list:
+    """Операторы по ; вне кавычек, комментариев и вложенных скобок."""
+    statements = []
+    buf = []
+    depth = 0
+    quote = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if not quote and ch == "/" and nxt == "/":
+            end = text.find("\n", i)
+            buf.append(text[i:len(text) if end < 0 else end])
+            i = len(text) if end < 0 else end
+            continue
+        if ch == '"':
+            quote = not quote
+            buf.append(ch)
+        elif quote:
+            buf.append(ch)
+        elif ch == "(":
+            depth += 1
+            buf.append(ch)
+        elif ch == ")" and depth:
+            depth -= 1
+            buf.append(ch)
+        elif ch == ";" and depth == 0:
+            statement = "".join(buf).strip()
+            if statement:
+                statements.append(statement)
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
+def top_keyword(statement: str, keyword: str, start: int = 0):
+    lowered = statement.lower()
+    token = keyword.lower()
+    depth = 0
+    quote = False
+    i = start
+    while i < len(statement):
+        ch = statement[i]
+        nxt = statement[i + 1] if i + 1 < len(statement) else ""
+        if not quote and ch == "/" and nxt == "/":
+            end = statement.find("\n", i)
+            i = len(statement) if end < 0 else end
+            continue
+        if ch == '"':
+            quote = not quote
+        elif not quote and ch == "(":
+            depth += 1
+        elif not quote and ch == ")" and depth:
+            depth -= 1
+        elif not quote and depth == 0 and lowered.startswith(token, i):
+            before = lowered[i - 1] if i else " "
+            after = lowered[i + len(token)] if i + len(token) < len(lowered) else " "
+            if not before.isalnum() and before != "_" and not after.isalnum() and after != "_":
+                return i
+        i += 1
+    return None
+
+
+def field_section(statement: str) -> str:
+    select_at = top_keyword(statement, "выбрать")
+    if select_at is None:
+        return ""
+    start = select_at + len("выбрать")
+    ends = [pos for pos in (top_keyword(statement, "поместить", start), top_keyword(statement, "из", start)) if pos is not None]
+    end = min(ends) if ends else len(statement)
+    return statement[start:end]
+
+
 class OneCMetadataMCPServer:
     """MCP-сервер схемы метаданных 1С. Инструменты читают metadata.json, запрос не исполняют."""
 
@@ -337,54 +416,51 @@ class OneCMetadataMCPServer:
         links = structure.get("Связи") or []
         if links and re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text, re.IGNORECASE):
             reasons.append("связь не по Ссылка = Ссылка, а по " + links[0]["условие"])
-        from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
-        select_part = text[:from_at.start()] if from_at else text
-        if re.search(r"справочник\.|документ\.|регистрнакопления\.", select_part, re.IGNORECASE):
-            reasons.append("в списке полей не пиши Справочник. или Документ.; только псевдоним.Поле")
-        if re.search(r"выбрать\s+\*", text, re.IGNORECASE):
-            columns = self._query_columns(structure)
-            listed = ", ".join(columns[:8]) or "колонки карточки"
-            reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")
-        else:
-            columns = [name.lower() for name in self._query_columns(structure, text)]
-            if columns:
-                from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
-                select_part = text[:from_at.start()] if from_at else text
-                requested = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
-                skip = {"выбрать", "как", "различные", "справочник", "документ", "регистрнакопления"}
-                aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)}
-                synonyms = {value.lower(): key for key, value in (structure.get("СинонимыПолей") or {}).items()}
-                suffix = "оборот" if ".обороты(" in text.lower() else "остаток" if ".остатки(" in text.lower() else ""
-                unknown = []
-                for name in requested:
-                    lowered_name = name.lower()
-                    if lowered_name in columns or lowered_name in skip or lowered_name in aliases:
-                        continue
-                    if suffix and f"{lowered_name}{suffix}" in columns:
-                        unknown.append(f"{name} → {name}{suffix.capitalize()}")
-                    elif lowered_name in synonyms:
-                        unknown.append(f"{name} → {synonyms[lowered_name]}")
-                    elif lowered_name == "бин" and "биниин" in columns:
-                        unknown.append("БИН → БИНИИН")
-                    else:
-                        unknown.append(name)
-                if unknown:
-                    reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
-        if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in text.lower():
-            select_part = text.split(" ИЗ ")[0].lower() if " ИЗ " in text.upper() else text.lower()
-            missing = [name for name in ("Актив", "Учреждение", "ВидАктива") if name.lower() not in select_part]
-            if missing:
-                reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
         if re.search(r"\bjoin\b|\bon\b", text, re.IGNORECASE):
             reasons.append("JOIN и ON нельзя: нужно ЛЕВОЕ СОЕДИНЕНИЕ и ПО по типу ссылки")
-        alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)
-        if alias:
-            from_at = re.search(r"\bИЗ\b", text, re.IGNORECASE)
-            select_part = text[:from_at.start()] if from_at else text
-            used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", select_part))
-            foreign = [name for name in used if name.lower() != alias.group(1).lower()]
-            if foreign:
-                reasons.append("псевдоним полей не совпадает с псевдонимом источника: " + ", ".join(foreign))
+        synonyms = {value.lower(): key for key, value in (structure.get("СинонимыПолей") or {}).items()}
+        for statement in split_statements(text):
+            select_part = field_section(statement)
+            if not select_part:
+                continue
+            lowered = statement.lower()
+            if re.search(r"справочник\.|документ\.|регистрнакопления\.", select_part, re.IGNORECASE):
+                reasons.append("в списке полей не пиши Справочник. или Документ.; только псевдоним.Поле")
+            if re.fullmatch(r"\s*(различные\s+)?\*\s*", select_part, re.IGNORECASE):
+                listed = ", ".join(self._query_columns(structure, statement)[:8]) or "колонки карточки"
+                reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")
+            else:
+                columns = [name.lower() for name in self._query_columns(structure, statement)]
+                if columns:
+                    requested = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
+                    skip = {"выбрать", "как", "различные", "первые", "справочник", "документ", "регистрнакопления"}
+                    aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE)}
+                    suffix = "оборот" if ".обороты(" in lowered else "остаток" if ".остатки(" in lowered else ""
+                    unknown = []
+                    for name in requested:
+                        lowered_name = name.lower()
+                        if lowered_name in columns or lowered_name in skip or lowered_name in aliases or lowered_name.isdigit():
+                            continue
+                        if suffix and f"{lowered_name}{suffix}" in columns:
+                            unknown.append(f"{name} → {name}{suffix.capitalize()}")
+                        elif lowered_name in synonyms:
+                            unknown.append(f"{name} → {synonyms[lowered_name]}")
+                        elif lowered_name == "бин" and "биниин" in columns:
+                            unknown.append("БИН → БИНИИН")
+                        else:
+                            unknown.append(name)
+                    if unknown:
+                        reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
+            if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in lowered:
+                missing = [name for name in ("Актив", "Учреждение", "ВидАктива") if name.lower() not in select_part.lower()]
+                if missing:
+                    reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
+            alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE)
+            if alias:
+                used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", select_part))
+                foreign = [name for name in used if name.lower() != alias.group(1).lower()]
+                if foreign:
+                    reasons.append("псевдоним полей не совпадает с псевдонимом источника: " + ", ".join(foreign))
         return {
             "status": "success" if not reasons else "rejected",
             "ok": not reasons,
