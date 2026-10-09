@@ -427,7 +427,7 @@ class OneCMetadataMCPServer:
             else:
                 reasons.append(f"в тексте нет имени запроса {query_name}")
         links = structure.get("Связи") or []
-        if links and re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text, re.IGNORECASE):
+        if links and re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text, re.IGNORECASE) and not self._tabular_self_join(text, query_name, structure):
             reasons.append("связь не по Ссылка = Ссылка, а по " + links[0]["условие"])
         if re.search(r"\bjoin\b|\bon\b", text, re.IGNORECASE):
             reasons.append("JOIN и ON нельзя: нужно ЛЕВОЕ СОЕДИНЕНИЕ и ПО по типу ссылки")
@@ -537,6 +537,18 @@ class OneCMetadataMCPServer:
             columns.extend(f"{ts_name}.{name}" for name in fields or [])
         return columns
 
+
+    @staticmethod
+    def _tabular_self_join(text: str, query_name: str, structure: Dict[str, Any]) -> bool:
+        """Своя табличная часть связывается по Ссылка = Ссылка, не по реквизиту справочника."""
+        if not query_name or not re.search(r"по\s+\S+\.ссылка\s*=\s*\S+\.ссылка", text or "", re.IGNORECASE):
+            return False
+        lowered = (text or "").lower()
+        for name in structure.get("ТабличныеЧасти") or {}:
+            if f"{query_name}.{name}".lower() in lowered:
+                return True
+        return False
+
     def check_join(self, bsl_code: str, cards: List[Dict[str, Any]]) -> List[str]:
         text = (bsl_code or "").replace('"', "")
         lowered = text.lower()
@@ -571,6 +583,8 @@ class OneCMetadataMCPServer:
                 if any(type_name == item or type_name in item for item in query_names):
                     if field.lower() in lowered and "ссылка" in lowered:
                         link_ok = True
+        if any(self._tabular_self_join(text, card.get("query_name") or "", card.get("structure") or {}) for card in cards):
+            link_ok = True
         if cards and any((card.get("structure") or {}).get("Типы") for card in cards) and not link_ok:
             reasons.append("ПО должно связывать реквизит типа ссылки со Ссылка второй таблицы")
         return reasons
