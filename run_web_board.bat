@@ -36,6 +36,6 @@ python app.py 8000 "data\metadata.json"
 
 if %errorlevel% neq 0 (
     echo:
-    echo [ERROR] Web board server exited with error (code: %errorlevel%).
+    echo [ERROR] Web board server exited with error. Code: %errorlevel%
     pause
 )
