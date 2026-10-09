@@ -98,6 +98,14 @@ class PhraseGuideTest(unittest.TestCase):
         self.assertFalse(any("АВЮридическиеЛица" in item for item in reasons))
         self.assertFalse(any("АВДоговора" in item and "полей нет" in item for item in reasons))
 
+    def test_turnover_resource_needs_suffix(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Актив, Сумма ИЗ РегистрНакопления.АВАктивы.Обороты(&НачалоПериода, &КонецПериода, , ) КАК Обороты",
+            "РегистрыНакопления.АВАктивы",
+        )
+        self.assertTrue(any("Сумма → СуммаОборот" in item for item in checked["reasons"]))
+
 
 if __name__ == "__main__":
     unittest.main()

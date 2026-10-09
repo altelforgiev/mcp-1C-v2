@@ -223,17 +223,18 @@ class OneCMetadataMCPServer:
     def _enrich_structure(category: str, entity_name: str, details: Dict[str, Any]) -> Dict[str, Any]:
         structure = dict(details or {})
         if category == "РегистрыНакопления":
-            columns = list(structure.get("Измерения", [])) + list(structure.get("Ресурсы", []))
+            dimensions = list(structure.get("Измерения") or [])
+            resources = list(structure.get("Ресурсы") or [])
             structure["ИмяВЗапросе"] = f"РегистрНакопления.{entity_name}"
             structure["ВиртуальныеТаблицы"] = {
                 "Остатки": {
                     "параметры": ["&ДатаОстатков"],
-                    "колонки": columns,
+                    "колонки": dimensions + [name + "Остаток" for name in resources],
                     "пример": f"РегистрНакопления.{entity_name}.Остатки(&ДатаОстатков, )",
                 },
                 "Обороты": {
                     "параметры": ["&НачалоПериода", "&КонецПериода"],
-                    "колонки": columns,
+                    "колонки": dimensions + [name + "Оборот" for name in resources],
                     "пример": f"РегистрНакопления.{entity_name}.Обороты(&НачалоПериода, &КонецПериода, , )",
                 },
             }
@@ -307,7 +308,7 @@ class OneCMetadataMCPServer:
             listed = ", ".join(columns[:8]) or "колонки карточки"
             reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")
         else:
-            columns = [name.lower() for name in self._query_columns(structure)]
+            columns = [name.lower() for name in self._query_columns(structure, text)]
             if columns:
                 from_at = re.search(r"\bиз\b", text, re.IGNORECASE)
                 select_part = text[:from_at.start()] if from_at else text
@@ -315,12 +316,15 @@ class OneCMetadataMCPServer:
                 skip = {"выбрать", "как", "различные", "справочник", "документ", "регистрнакопления"}
                 aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)}
                 synonyms = {value.lower(): key for key, value in (structure.get("СинонимыПолей") or {}).items()}
+                suffix = "оборот" if ".обороты(" in text.lower() else "остаток" if ".остатки(" in text.lower() else ""
                 unknown = []
                 for name in requested:
                     lowered_name = name.lower()
                     if lowered_name in columns or lowered_name in skip or lowered_name in aliases:
                         continue
-                    if lowered_name in synonyms:
+                    if suffix and f"{lowered_name}{suffix}" in columns:
+                        unknown.append(f"{name} → {name}{suffix.capitalize()}")
+                    elif lowered_name in synonyms:
                         unknown.append(f"{name} → {synonyms[lowered_name]}")
                     elif lowered_name == "бин" and "биниин" in columns:
                         unknown.append("БИН → БИНИИН")
@@ -352,9 +356,11 @@ class OneCMetadataMCPServer:
         }
 
     @staticmethod
-    def _query_columns(structure: Dict[str, Any]) -> List[str]:
+    def _query_columns(structure: Dict[str, Any], text: str = "") -> List[str]:
         virtual = structure.get("ВиртуальныеТаблицы") or {}
-        for name in ("Обороты", "Остатки"):
+        lowered = (text or "").lower()
+        order = ("Обороты", "Остатки") if ".обороты(" in lowered else ("Остатки", "Обороты") if ".остатки(" in lowered else ("Обороты", "Остатки")
+        for name in order:
             columns = (virtual.get(name) or {}).get("колонки") or []
             if columns:
                 return columns
