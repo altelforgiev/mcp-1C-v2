@@ -437,8 +437,18 @@ class OneCMetadataMCPServer:
             if not select_part:
                 continue
             lowered = statement.lower()
-            if re.search(r"справочник\.|документ\.|регистрнакопления\.", select_part, re.IGNORECASE):
-                reasons.append("в списке полей не пиши Справочник. или Документ.; только псевдоним.Поле")
+            aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE)}
+            metadata_fields = re.findall(
+                r"(справочники|справочник|документы|документ|регистрнакопления)\.([0-9A-Za-zА-Яа-яЁё_]+)",
+                select_part,
+                re.IGNORECASE,
+            )
+            bad = [
+                f"{kind}.{name}" for kind, name in metadata_fields
+                if kind.lower() in {"справочники", "документы", "регистрнакопления"} or kind.lower() not in aliases
+            ]
+            if bad:
+                reasons.append("в списке полей не пиши имя таблицы; только псевдоним.Поле: " + ", ".join(dict.fromkeys(bad)))
             if re.fullmatch(r"\s*(различные\s+)?\*\s*", select_part, re.IGNORECASE):
                 listed = ", ".join(self._query_columns(structure, statement)[:8]) or "колонки карточки"
                 reasons.append(f"ВЫБРАТЬ * нельзя, перечисли поля: {listed}")

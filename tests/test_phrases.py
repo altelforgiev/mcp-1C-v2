@@ -202,3 +202,34 @@ class ProjectedCardTest(unittest.TestCase):
         self.assertIn("Товар", text)
         self.assertNotIn("УдалитьАвтор", text)
         self.assertIn("resolve_phrase не вызывать", text)
+
+
+class AliasDocumentTest(unittest.TestCase):
+    def test_alias_document_is_not_a_table_name(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Документ.Дата, Запасы.Товар "
+            "ИЗ Документ.АВСписаниеЗапасов КАК Документ "
+            "ЛЕВОЕ СОЕДИНЕНИЕ Документ.АВСписаниеЗапасов.Запасы КАК Запасы "
+            "ПО Документ.Ссылка = Запасы.Ссылка "
+            "ГДЕ Документ.Дата МЕЖДУ &НачалоПериода И &КонецПериода",
+            "Документы.АВСписаниеЗапасов",
+        )
+        self.assertTrue(checked["ok"], checked["reasons"])
+        self.assertIn("Шапка", project_card_text())
+
+    def test_table_name_in_fields_is_still_rejected(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Документ.АВСписаниеЗапасов.Дата ИЗ Документ.АВСписаниеЗапасов КАК Списание",
+            "Документы.АВСписаниеЗапасов",
+        )
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("имя таблицы" in item for item in checked["reasons"]))
+
+
+def project_card_text():
+    from app import project_card
+    server = OneCMetadataMCPServer(METADATA)
+    card = server.get_metadata_structure("Документы.АВСписаниеЗапасов")
+    return project_card(card, "списание запасов за сентябрь 2025")

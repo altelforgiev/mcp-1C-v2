@@ -281,14 +281,14 @@ def project_card(card: dict, phrase: str) -> str:
         lines.append(
             "Образец формы, имена подставь из карточки:\n"
             "ВЫБРАТЬ\n"
-            "    Документ.Дата,\n"
+            "    Шапка.Дата,\n"
             f"    {ts_name}.{matched[0]}\n"
             "ИЗ\n"
-            f"    {card.get('query_name')} КАК Документ\n"
+            f"    {card.get('query_name')} КАК Шапка\n"
             f"        ЛЕВОЕ СОЕДИНЕНИЕ {card.get('query_name')}.{ts_name} КАК {ts_name}\n"
-            f"        ПО Документ.Ссылка = {ts_name}.Ссылка\n"
+            f"        ПО Шапка.Ссылка = {ts_name}.Ссылка\n"
             "ГДЕ\n"
-            "    Документ.Дата МЕЖДУ &НачалоПериода И &КонецПериода"
+            "    Шапка.Дата МЕЖДУ &НачалоПериода И &КонецПериода"
         )
         break
     header = [name for name in (structure.get("Реквизиты") or []) if not name.lower().startswith("удалить") and hits(name)]
