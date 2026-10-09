@@ -123,7 +123,10 @@
             const lines = (data.lines || []).map((item) => item.time + " " + item.status + " " + ((item.usage || {}).total_tokens || 0) + " " + item.prompt);
             document.getElementById("file-log").textContent = lines.join("\n") || "пусто";
         }
+
+        function newDialog() {
             dialog.length = 0;
+            document.getElementById("choices").innerHTML = "";
             document.getElementById("prompt-input").value = "";
             document.getElementById("mcp-logs").innerHTML = "<div>Новый диалог. Ожидание запроса клиента.</div>";
             document.getElementById("code-output").textContent = "// здесь появится текст запроса";
