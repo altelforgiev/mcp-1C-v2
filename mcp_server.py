@@ -13,6 +13,23 @@ STOPWORDS = {
 }
 
 
+def stem_token(token: str) -> str:
+    """Основа слова: списанные и списание дают одну основу, запасы и запасов тоже."""
+    word = (token or "").lower().replace("ё", "е")
+    for suffix in (
+        "иями", "ями", "ами", "ого", "ему", "ыми", "ими",
+        "ие", "ые", "ая", "яя", "ое", "ее", "ых", "их", "ую", "юю",
+        "ов", "ев", "ам", "ям", "ах", "ях", "ом", "ем", "ий", "ый", "ой",
+        "а", "я", "ы", "и", "о", "е", "у", "ю",
+    ):
+        if len(word) - len(suffix) >= 4 and word.endswith(suffix):
+            word = word[: -len(suffix)]
+            break
+    if word.endswith("нн") and len(word) > 5:
+        word = word[:-1]
+    return word
+
+
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     path = config_path or os.path.join(ROOT, "config.json")
     if not os.path.exists(path):
@@ -84,11 +101,18 @@ class OneCMetadataMCPServer:
                     score += 5
                 if synonym and any(token in synonym for token in tokens):
                     score += 8
+                name_stems = {stem_token(part) for part in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", entity_name.lower())}
+                synonym_stems = {stem_token(part) for part in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", synonym)}
                 for token in tokens:
+                    stemmed = stem_token(token)
                     if token in entity_name.lower() or token.rstrip("аыи") in entity_name.lower():
                         score += 3
-                    elif token in haystack:
+                    elif stemmed and (stemmed in name_stems or any(stemmed in part or part in stemmed for part in name_stems if len(part) >= 4)):
+                        score += 6
+                    elif token in haystack or (stemmed and stemmed in synonym_stems):
                         score += 1
+                    if cat == "Справочники" and stemmed in ("списан", "выбыт", "перемещ", "инвентаризац"):
+                        score -= 4
                 for req in details.get("Реквизиты", []):
                     if self._field_hit(req, query_lower, tokens, intent, field_synonyms.get(req)):
                         matched_fields.append(f"Реквизит: {req}")
@@ -266,9 +290,10 @@ class OneCMetadataMCPServer:
 
     def resolve_phrase(self, phrase: str) -> Dict[str, Any]:
         text = (phrase or "").lower()
+        text_stems = {stem_token(token) for token in self._tokens(text)}
         rules = self._phrase_rules()
         for rule in rules:
-            if any(trigger in text for trigger in rule.get("triggers", [])):
+            if any(self._trigger_hit(trigger, text, text_stems) for trigger in rule.get("triggers", [])):
                 return {
                     "status": "success",
                     "phrase": phrase,
@@ -287,6 +312,14 @@ class OneCMetadataMCPServer:
             "candidates": [],
             "not": [],
         }
+
+    @staticmethod
+    def _trigger_hit(trigger: str, text: str, text_stems: set) -> bool:
+        if trigger in text:
+            return True
+        stems = [stem_token(token) for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", trigger.lower())]
+        stems = [item for item in stems if len(item) >= 4]
+        return bool(stems) and all(item in text_stems for item in stems)
 
     def check_query(self, bsl_code: str, entity_name: str) -> Dict[str, Any]:
         card = self.get_metadata_structure(entity_name)
@@ -369,7 +402,12 @@ class OneCMetadataMCPServer:
             columns = (virtual.get(name) or {}).get("колонки") or []
             if columns:
                 return columns
-        return list(structure.get("Реквизиты") or []) + list(structure.get("СтандартныеРеквизиты") or [])
+        columns = list(structure.get("Реквизиты") or []) + list(structure.get("СтандартныеРеквизиты") or [])
+        for ts_name, fields in (structure.get("ТабличныеЧасти") or {}).items():
+            columns.append(ts_name)
+            columns.extend(fields or [])
+            columns.extend(f"{ts_name}.{name}" for name in fields or [])
+        return columns
 
     def check_join(self, bsl_code: str, cards: List[Dict[str, Any]]) -> List[str]:
         text = (bsl_code or "").replace('"', "")

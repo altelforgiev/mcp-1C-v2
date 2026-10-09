@@ -123,3 +123,15 @@ class ChoiceButtonTest(unittest.TestCase):
         self.assertTrue(choice_made("Документы.АВРеализацияПередачаАктивовЮрЛицу", resolved))
         self.assertTrue(choice_made("РегистрыНакопления.АВАктивы", resolved))
         self.assertFalse(choice_made("выбывшие активы за сентябрь 2025", resolved))
+
+
+class StockWriteoffPhraseTest(unittest.TestCase):
+    def test_written_off_stocks_ask_which_document(self):
+        server = OneCMetadataMCPServer(METADATA)
+        found = server.resolve_phrase("списанные запасы за январь 2025")
+        self.assertEqual(found["matched"], "stock-writeoff")
+        self.assertTrue(found["need_clarification"])
+        objects = [item["object"] for item in found["candidates"]]
+        self.assertEqual(objects, ["Документы.АВСписаниеЗапасов", "Документы.АВСписаниеСпецзапасов"])
+        search = server.search_metadata("списанные запасы")
+        self.assertEqual(search["results"][0]["entity_name"], "АВСписаниеЗапасов")
