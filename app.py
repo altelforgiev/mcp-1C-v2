@@ -144,6 +144,16 @@ def parse_final_payload(content: str) -> dict:
     return parsed
 
 
+
+def query_name_from_text(bsl: str) -> str:
+    match = re.search(r"\bиз\s+((?:документ|справочник|регистрнакопления)\.[0-9A-Za-zА-Яа-яЁё_]+)", bsl or "", re.IGNORECASE)
+    if not match:
+        return ""
+    kind, name = match.group(1).split(".", 1)
+    category = {"документ": "Документы", "справочник": "Справочники", "регистрнакопления": "РегистрыНакопления"}.get(kind.lower(), kind)
+    return f"{category}.{name}"
+
+
 def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer) -> list:
     reasons = []
     text = bsl or ""
@@ -369,6 +379,8 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     arguments = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                 except json.JSONDecodeError:
                     arguments = {}
+                if name == "check_query" and not (arguments.get("entity_name") or "").strip():
+                    arguments["entity_name"] = (chosen or {}).get("object") or query_name_from_text(arguments.get("bsl_code", ""))
                 result = call_mcp_tool(server, name, arguments)
                 if name == "check_query":
                     open_join_target(server, trace, arguments.get("bsl_code", ""))
