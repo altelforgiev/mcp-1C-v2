@@ -109,3 +109,17 @@ class PhraseGuideTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChoiceButtonTest(unittest.TestCase):
+    def test_button_object_is_one_candidate(self):
+        from app import choice_made
+        resolved = {"candidates": [
+            {"object": "Документы.АВВыбытиеАктивов"},
+            {"object": "Документы.АВРеализацияПередачаАктивовЮрЛицу"},
+            {"object": "РегистрыНакопления.АВАктивы"},
+        ]}
+        self.assertTrue(choice_made("Документы.АВВыбытиеАктивов", resolved))
+        self.assertTrue(choice_made("Документы.АВРеализацияПередачаАктивовЮрЛицу", resolved))
+        self.assertTrue(choice_made("РегистрыНакопления.АВАктивы", resolved))
+        self.assertFalse(choice_made("выбывшие активы за сентябрь 2025", resolved))

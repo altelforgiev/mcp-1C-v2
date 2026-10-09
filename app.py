@@ -204,6 +204,28 @@ def accept_query(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServ
     return False
 
 
+def matching_candidates(prompt: str, resolved: dict) -> list:
+    """Один кандидат. Короткое имя сравнивается целиком: АВАктивы не часть АВВыбытиеАктивов."""
+    text = (prompt or "").strip().lower()
+    tokens = set(re.findall(r"[0-9a-zа-яё_]+", text))
+    exact = []
+    for item in resolved.get("candidates", []):
+        obj = item.get("object") or ""
+        short = obj.split(".")[-1].lower()
+        if text == obj.lower() or text == short or (short and short in tokens):
+            exact.append(item)
+    if exact:
+        return exact
+    candidates = resolved.get("candidates", [])
+    if "оборот" in text or "регистр" in text:
+        return [item for item in candidates if item.get("object", "").startswith("Регистры")]
+    if ("документ выбытия" in text or "выбытие активов" in text) and "реализац" not in text:
+        return [item for item in candidates if "ВыбытиеАктивов" in item.get("object", "")]
+    if "юридическ" in text or "юрлицу" in text:
+        return [item for item in candidates if "ЮрЛицу" in item.get("object", "")]
+    return []
+
+
 def chosen_candidate(prompt: str, history: list, server: OneCMetadataMCPServer):
     original = ""
     for item in history or []:
@@ -213,36 +235,14 @@ def chosen_candidate(prompt: str, history: list, server: OneCMetadataMCPServer):
     if not original:
         return None
     resolved = server.resolve_phrase(original)
-    if not resolved.get("need_clarification") or not choice_made(prompt, resolved):
+    if not resolved.get("need_clarification"):
         return None
-    text = (prompt or "").lower()
-    for item in resolved.get("candidates", []):
-        short = item.get("object", "").split(".")[-1].lower()
-        if short and short in text:
-            return item
-    if "регистр" in text or "оборот" in text:
-        return next((item for item in resolved["candidates"] if item["object"].startswith("Регистры")), None)
-    if "документ выбытия" in text:
-        return next((item for item in resolved["candidates"] if "ВыбытиеАктивов" in item["object"]), None)
-    if "юридическ" in text or "юрлицу" in text:
-        return next((item for item in resolved["candidates"] if "ЮрЛицу" in item["object"]), None)
-    return None
+    found = matching_candidates(prompt, resolved)
+    return found[0] if len(found) == 1 else None
 
 
 def choice_made(prompt: str, resolved: dict) -> bool:
-    text = (prompt or "").lower()
-    hits = []
-    for item in resolved.get("candidates", []):
-        short = item.get("object", "").split(".")[-1].lower()
-        if short and short in text:
-            hits.append(short)
-    if ("документ выбытия" in text or "выбытие активов" in text) and "реализац" not in text:
-        hits.append("disposal")
-    if "юридическ" in text or "юрлицу" in text:
-        hits.append("sale")
-    if "регистр" in text or "оборот" in text:
-        hits.append("register")
-    return len(set(hits)) == 1
+    return len(matching_candidates(prompt, resolved)) == 1
 
 
 def review_prompt(prompt: str, bsl: str, card: dict) -> str:
