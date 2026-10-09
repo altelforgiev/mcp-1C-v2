@@ -174,3 +174,19 @@ class SituationalReplacementTest(unittest.TestCase):
         self.assertIn("ДатаДокумента → Дата", joined)
         self.assertIn("Запасы", joined)
         self.assertNotIn("АВСписаниеЗапасов нужен", joined)
+
+
+class TabularSourceTest(unittest.TestCase):
+    def test_word_in_fields_is_not_a_tabular_source(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Реквизиты.Учреждение, ТабличнаяЧасть.Запасы.Товар "
+            "ИЗ Документ.АВСписаниеЗапасов КАК Документ "
+            "ГДЕ Документ.ДатаДокумента МЕЖДУ &НачалоПериода И &КонецПериода",
+            "Документы.АВСписаниеЗапасов",
+        )
+        joined = " ".join(checked["reasons"])
+        self.assertIn("ДатаДокумента → Дата", joined)
+        self.assertIn("Документ.АВСписаниеЗапасов.Запасы", joined)
+        self.assertIn("Реквизиты", joined)
+        self.assertIn("ТабличнаяЧасть", joined)

@@ -506,18 +506,23 @@ class OneCMetadataMCPServer:
                 if re.search(r"\b" + re.escape(name) + r"\b", where, re.IGNORECASE):
                     reasons.append(f"{name} → Дата")
                     break
+        aliases = {name.lower() for name in re.findall(r"\bкак\s+([0-9A-Za-zА-Яа-яЁё_]+)", source, re.IGNORECASE)}
+        qualifiers = re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", select_part)
+        foreign = [name for name in dict.fromkeys(qualifiers) if name.lower() not in aliases]
+        if foreign:
+            reasons.append("поля квалифицируй псевдонимом источника, не пиши " + ", ".join(foreign))
         if category == "Документы" and len(tabular) == 1:
             ts_name = next(iter(tabular))
-            ts_fields = {name.lower() for name in tabular[ts_name]}
-            asked_ts = [name for name in field_names if name.lower() in ts_fields]
-            if ts_name.lower() not in lowered and not asked_ts:
+            source_path = f"{card.get('query_name')}.{ts_name}".lower()
+            if source_path not in lowered:
                 reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК {ts_name}; карточку для неё заново не запрашивай")
         if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
             dimensions = structure.get("Измерения") or []
             if dimensions and not any(name.lower() in select_lower for name in dimensions):
                 reasons.append("в списке полей нет измерений карточки: " + ", ".join(dimensions))
         header_hits = [name for name in field_names if name in attributes and not name.lower().startswith("удалить")]
-        if category == "Документы" and tabular and len(header_hits) > 8 and not any(name.lower() in lowered for name in tabular):
+        joined = any(f"{card.get('query_name')}.{name}".lower() in lowered for name in tabular)
+        if category == "Документы" and tabular and len(header_hits) > 8 and not joined:
             reasons.append("оставь поля фразы и табличной части, не выгружай всю шапку")
         return reasons
 
