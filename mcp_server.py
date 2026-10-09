@@ -76,6 +76,7 @@ class OneCMetadataMCPServer:
                 details = details if isinstance(details, dict) else {}
                 full_name = f"{cat}.{entity_name}"
                 matched_fields = []
+                field_synonyms = details.get("СинонимыПолей") or {}
                 haystack = f"{cat} {entity_name} {details.get('Синоним', '')}".lower()
                 score = 0
                 synonym = str(details.get("Синоним") or "").lower()
@@ -89,23 +90,23 @@ class OneCMetadataMCPServer:
                     elif token in haystack:
                         score += 1
                 for req in details.get("Реквизиты", []):
-                    if self._field_hit(req, query_lower, tokens, intent):
+                    if self._field_hit(req, query_lower, tokens, intent, field_synonyms.get(req)):
                         matched_fields.append(f"Реквизит: {req}")
                         score += 2
                 for dim in details.get("Измерения", []):
-                    if self._field_hit(dim, query_lower, tokens, intent):
+                    if self._field_hit(dim, query_lower, tokens, intent, field_synonyms.get(dim)):
                         matched_fields.append(f"Измерение: {dim}")
                         score += 2
                 for res in details.get("Ресурсы", []):
-                    if self._field_hit(res, query_lower, tokens, intent):
+                    if self._field_hit(res, query_lower, tokens, intent, field_synonyms.get(res)):
                         matched_fields.append(f"Ресурс: {res}")
                         score += 2
                 for ts_name, ts_cols in details.get("ТабличныеЧасти", {}).items():
-                    if self._field_hit(ts_name, query_lower, tokens, intent):
+                    if self._field_hit(ts_name, query_lower, tokens, intent, field_synonyms.get(ts_name)):
                         matched_fields.append(f"ТабличнаяЧасть: {ts_name}")
                         score += 2
                     for col in ts_cols:
-                        if self._field_hit(col, query_lower, tokens, intent):
+                        if self._field_hit(col, query_lower, tokens, intent, field_synonyms.get(f"{ts_name}.{col}")):
                             matched_fields.append(f"ТабличнаяЧасть.{ts_name}.{col}")
                             score += 1
                 score += self._intent_boost(intent, cat, entity_name, details, query_lower)
@@ -114,6 +115,7 @@ class OneCMetadataMCPServer:
                         "category": cat,
                         "entity_name": entity_name,
                         "full_name": full_name,
+                        "synonym": details.get("Синоним") or "",
                         "matched_fields": matched_fields[:12],
                         "dimensions": details.get("Измерения", []),
                         "resources": details.get("Ресурсы", []),
@@ -179,13 +181,16 @@ class OneCMetadataMCPServer:
         return score
 
     @staticmethod
-    def _field_hit(name: str, query_lower: str, tokens: List[str], intent: Optional[str] = None) -> bool:
+    def _field_hit(name: str, query_lower: str, tokens: List[str], intent: Optional[str] = None, synonym: Optional[str] = None) -> bool:
         lowered = name.lower()
+        synonym_lower = str(synonym or "").lower()
         if intent == "остатки" and lowered.endswith("остаток"):
             return False
-        if query_lower and query_lower in lowered:
+        if query_lower and (query_lower in lowered or (synonym_lower and query_lower in synonym_lower)):
             return True
-        return any(token in lowered for token in tokens)
+        if any(token in lowered for token in tokens):
+            return True
+        return bool(synonym_lower) and any(token in synonym_lower for token in tokens)
 
     def get_metadata_structure(self, entity_name: str) -> Dict[str, Any]:
         target_cat = None

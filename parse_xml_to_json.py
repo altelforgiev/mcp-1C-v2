@@ -25,15 +25,32 @@ def clean_tag(tag_str):
     return tag_str
 
 def extract_synonym(element):
+    """Синоним из Properties/Synonym. Предпочитает ru, иначе первый content."""
     for child in element:
         if clean_tag(child.tag) != "Properties":
             continue
         for prop in child:
             if clean_tag(prop.tag) != "Synonym":
                 continue
+            fallback = None
             for item in prop.iter():
-                if clean_tag(item.tag) == "content" and item.text:
-                    return item.text.strip()
+                if clean_tag(item.tag) != "item":
+                    continue
+                lang = None
+                content = None
+                for part in item:
+                    tag = clean_tag(part.tag)
+                    if tag == "lang":
+                        lang = (part.text or "").strip().lower()
+                    elif tag == "content" and part.text and part.text.strip():
+                        content = part.text.strip()
+                if not content:
+                    continue
+                if fallback is None:
+                    fallback = content
+                if lang == "ru":
+                    return content
+            return fallback
     return None
 
 
@@ -81,6 +98,10 @@ def parse_tabular_section(ts_element):
     ts_name = extract_name(ts_element)
     ts_attrs = []
     ts_types = {}
+    ts_synonyms = {}
+    ts_synonym = extract_synonym(ts_element)
+    if ts_synonym:
+        ts_synonyms[""] = ts_synonym
     for child in ts_element:
         tag = clean_tag(child.tag)
         nodes = list(child) if tag == "ChildObjects" else ([child] if tag == "Attribute" else [])
@@ -93,7 +114,9 @@ def parse_tabular_section(ts_element):
             ts_attrs.append(info["name"])
             if info["type"]:
                 ts_types[info["name"]] = info["type"]
-    return ts_name, ts_attrs, ts_types
+            if info["synonym"]:
+                ts_synonyms[info["name"]] = info["synonym"]
+    return ts_name, ts_attrs, ts_types, ts_synonyms
 
 def parse_1c_xml_object(xml_file_path):
     """
@@ -111,7 +134,7 @@ def parse_1c_xml_object(xml_file_path):
     md_object = None
     for child in root:
         child_tag = clean_tag(child.tag)
-        if child_tag in ["Catalog", "Document", "AccumulationRegister", "InformationRegister", 
+        if child_tag in ["Catalog", "Document", "AccumulationRegister", "InformationRegister",
                          "AccountingRegister", "ChartOfAccounts", "ChartOfCharacteristicTypes",
                          "ChartOfCalculationTypes", "BusinessProcess", "Task", "Enum"]:
             md_object = child
@@ -153,7 +176,7 @@ def parse_1c_xml_object(xml_file_path):
     for container in child_containers:
         for item in container:
             item_tag = clean_tag(item.tag)
-            
+
             # Реквизиты
             if item_tag == "Attribute":
                 attr_name = remember(field_info(item))
@@ -168,10 +191,13 @@ def parse_1c_xml_object(xml_file_path):
                 if res_name:
                     resources.append(res_name)
             elif item_tag == "TabularSection":
-                ts_name, ts_attrs, ts_types = parse_tabular_section(item)
+                ts_name, ts_attrs, ts_types, ts_synonyms = parse_tabular_section(item)
                 if ts_name:
                     tabular_sections[ts_name] = ts_attrs
                     field_types.update({f"{ts_name}.{name}": value for name, value in ts_types.items()})
+                    if "" in ts_synonyms:
+                        field_synonyms[ts_name] = ts_synonyms.pop("")
+                    field_synonyms.update({f"{ts_name}.{name}": value for name, value in ts_synonyms.items()})
 
     # Формируем итоговую структуру объекта
     data = {}
