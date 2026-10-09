@@ -26,7 +26,7 @@ class PhraseGuideTest(unittest.TestCase):
         bad = "ВЫБРАТЬ Реквизиты.Наименование ИЗ РегистрыНакопления.АВАктивы.Остатки(&ДатаОстатков) КАК Остатки"
         checked = server.check_query(bad, "РегистрыНакопления.АВАктивы")
         self.assertFalse(checked["ok"])
-        self.assertTrue(any("query_name" in item or "имени запроса" in item for item in checked["reasons"]))
+        self.assertTrue(any("после ИЗ пиши" in item or "имени запроса" in item for item in checked["reasons"]))
         self.assertTrue(any("псевдоним" in item for item in checked["reasons"]))
 
     def test_star_select_is_rejected(self):

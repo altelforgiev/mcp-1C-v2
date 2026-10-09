@@ -25,12 +25,15 @@
                 <div id="mcp-logs" class="bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs text-slate-400 max-h-[32rem] overflow-y-auto">
                     <div>Ожидание запроса клиента.</div>
                 </div>
+                <h3 class="font-semibold mt-4 mb-2 text-sm">Журнал файла</h3>
+                <div id="file-log" class="bg-slate-950 border border-slate-800 rounded p-3 font-mono text-xs text-slate-500 max-h-40 overflow-y-auto">пусто</div>
             </div>
         </div>
         <div class="lg:col-span-8 space-y-6">
             <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
                 <h2 class="font-semibold">Запрос клиента</h2>
                 <textarea id="prompt-input" rows="3" placeholder="Например: остатки товаров на складах за период" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm"></textarea>
+                <div id="choices" class="flex flex-wrap gap-2"></div>
                 <div class="flex gap-2">
                     <button onclick="generateQuery()" id="btn-generate" class="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2 rounded-lg text-sm">Сгенерировать BSL</button>
                     <button onclick="newDialog()" class="bg-slate-700 hover:bg-slate-600 text-white px-5 py-2 rounded-lg text-sm">Новый диалог</button>
@@ -96,7 +99,30 @@
             addLog("[токены] " + (current.total_tokens || 0) + " за запрос, " + sessionUsage.total_tokens + " за сессию", "text-slate-300");
         }
 
-        function newDialog() {
+        function choose(text) {
+            document.getElementById("prompt-input").value = text;
+            generateQuery();
+        }
+
+        function showChoices(data) {
+            const box = document.getElementById("choices");
+            box.innerHTML = "";
+            if (data.status !== "need_clarification") return;
+            (data.candidates || []).forEach((item) => {
+                const button = document.createElement("button");
+                button.className = "bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded text-xs";
+                button.textContent = item.object || item.query_name || "вариант";
+                button.onclick = () => choose(item.object || "");
+                box.appendChild(button);
+            });
+        }
+
+        async function refreshFileLog() {
+            const res = await fetch("/log");
+            const data = await res.json();
+            const lines = (data.lines || []).map((item) => item.time + " " + item.status + " " + ((item.usage || {}).total_tokens || 0) + " " + item.prompt);
+            document.getElementById("file-log").textContent = lines.join("\n") || "пусто";
+        }
             dialog.length = 0;
             document.getElementById("prompt-input").value = "";
             document.getElementById("mcp-logs").innerHTML = "<div>Новый диалог. Ожидание запроса клиента.</div>";
@@ -133,6 +159,8 @@
                 document.getElementById("params-output").textContent = "Параметры: " + ((data.parameters || []).join(", ") || "-");
                 document.getElementById("arch-output").textContent = "Архитектура: " + (data.architecture_comment || "-");
                 showUsage(data.usage);
+                showChoices(data);
+                refreshFileLog().catch(() => {});
                 addLog(data.status === "success" ? "[модель] BSL после MCP" : (data.status === "need_clarification" ? "[уточнение] " + (data.architecture_comment || "") : "[ошибка] BSL не принят"), data.status === "success" ? "text-emerald-400" : "text-red-400");
             } catch (err) {
                 addLog("[сеть] " + err.message, "text-red-400");

@@ -333,8 +333,6 @@ class OneCMetadataMCPServer:
             missing = [name for name in ("Актив", "Учреждение", "ВидАктива") if name.lower() not in select_part]
             if missing:
                 reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
-        if "РегистрыНакопления." in text or "Документы." in text or "Справочники." in text:
-            reasons.append("имя категории во множественном числе, нужно имя из query_name")
         if re.search(r"\bjoin\b|\bon\b", text, re.IGNORECASE):
             reasons.append("JOIN и ON нельзя: нужно ЛЕВОЕ СОЕДИНЕНИЕ и ПО по типу ссылки")
         alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", text, re.IGNORECASE)

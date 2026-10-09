@@ -155,17 +155,12 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
         intent = "остатки"
     elif "оборот" in prompt_lower:
         intent = "обороты"
-    card = None
-    for step in trace:
-        if step.get("tool") == "get_metadata_structure" and step.get("status") == "success":
-            card = server.get_metadata_structure((step.get("arguments") or {}).get("entity_name", ""))
-    if card is None or card.get("status") != "success":
+    cards = opened_cards(trace, server)
+    if not cards:
         return ["нет успешной карточки MCP"]
-    category = card.get("category")
-    entity = card.get("entity_name")
-    structure = card.get("structure") or {}
-    if intent == "остатки" and category != "РегистрыНакопления":
-        reasons.append(f"для остатков взят {category}.{entity}, нужен регистр накопления")
+    if intent == "остатки" and not any(card.get("category") == "РегистрыНакопления" for card in cards):
+        card = cards[-1]
+        reasons.append(f"для остатков взят {card.get('category')}.{card.get('entity_name')}, нужен регистр накопления")
     if intent == "остатки" and ".остатки(" not in lowered:
         reasons.append("нет виртуальной таблицы Остатки(&ДатаОстатков, )")
     if intent in ("остатки", "обороты") and ("поместить" in lowered or "уничтожить" in lowered):
@@ -181,12 +176,32 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
         reasons.append("у Остатки(...) нет псевдонима КАК")
     if re.search(r"где[\s\S]{0,200}'20\d\d-\d\d-\d\d'", lowered):
         reasons.append("дата написана строкой в ГДЕ; для остатка оставь &ДатаОстатков в параметре виртуальной таблицы")
-    for section in (structure.get("ТабличныеЧасти") or {}):
-        if f".{section.lower()}." in lowered:
-            reasons.append(f"табличная часть {section} написана точкой, а не отдельной таблицей")
+    for card in cards:
+        for section in ((card.get("structure") or {}).get("ТабличныеЧасти") or {}):
+            if f".{section.lower()}." in lowered:
+                reasons.append(f"табличная часть {section} написана точкой, а не отдельной таблицей")
     if "незадан" in lowered:
         reasons.append("поля НеЗадан нет в карточке")
+    reasons.extend(mixed_script(text))
+    return list(dict.fromkeys(reasons))
+
+
+def mixed_script(text: str) -> list:
+    reasons = []
+    for token in re.findall(r"[0-9A-Za-zА-Яа-яЁё_]+", text or ""):
+        if re.search(r"[A-Za-z]", token) and re.search(r"[А-Яа-яЁё]", token):
+            reasons.append(f"смешанная латиница в имени {token}")
     return reasons
+
+
+def accept_query(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer, result: dict) -> bool:
+    extra = check_bsl(prompt, bsl, trace, server)
+    if not extra:
+        return True
+    result["reasons"] = list(result.get("reasons") or []) + extra
+    result["ok"] = False
+    result["status"] = "rejected"
+    return False
 
 
 def chosen_candidate(prompt: str, history: list, server: OneCMetadataMCPServer):
@@ -387,6 +402,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                         "bsl_code": "",
                         "parameters": [],
                         "architecture_comment": (result.get("question") or "Нужно уточнение") + " " + names,
+                        "candidates": result.get("candidates", []),
                         "schema": "client -> model -> mcp -> bsl",
                     }
                 has_card = any(step.get("tool") == "get_metadata_structure" and step.get("status") == "success" for step in trace)
@@ -413,6 +429,9 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                         "tool_call_id": call.get("id", name),
                         "content": json.dumps(result, ensure_ascii=False),
                     })
+                    if result.get("ok") and not accept_query(prompt, arguments.get("bsl_code", ""), trace, server, result):
+                        trace[-1]["status"] = result.get("status")
+                        trace[-1]["preview"] = preview_result(result)
                     if result.get("ok") and (not chosen or chosen.get("query_name") in arguments.get("bsl_code", "")):
                         return {
                             "status": "success",
@@ -436,6 +455,10 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     "tool_call_id": call.get("id", name),
                     "content": json.dumps(result, ensure_ascii=False),
                 })
+                if name == "check_query" and result.get("ok") and not accept_query(prompt, arguments.get("bsl_code", ""), trace, server, result):
+                    trace[-1]["status"] = result.get("status")
+                    trace[-1]["preview"] = preview_result(result)
+                    messages[-1]["content"] = json.dumps(result, ensure_ascii=False)
                 if name == "check_query" and result.get("ok"):
                     return {
                         "status": "success",
@@ -595,6 +618,14 @@ def build_http_handler(server, system_prompt):
                     "system_prompt_loaded": bool(system_prompt),
                     "schema": "client -> model -> mcp -> bsl",
                 })
+                return
+            if self.path == "/log":
+                path = os.path.join(ROOT, "data", "logs", "board.jsonl")
+                lines = []
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8") as handle:
+                        lines = handle.readlines()[-20:]
+                self._json({"lines": [json.loads(line) for line in lines if line.strip()]})
                 return
             self.send_error(404)
 
