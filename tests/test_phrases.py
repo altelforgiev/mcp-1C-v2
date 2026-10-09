@@ -26,7 +26,7 @@ class PhraseGuideTest(unittest.TestCase):
         bad = "ВЫБРАТЬ Реквизиты.Наименование ИЗ РегистрыНакопления.АВАктивы.Остатки(&ДатаОстатков) КАК Остатки"
         checked = server.check_query(bad, "РегистрыНакопления.АВАктивы")
         self.assertFalse(checked["ok"])
-        self.assertTrue(any("после ИЗ пиши" in item or "имени запроса" in item for item in checked["reasons"]))
+        self.assertTrue(any("в ИЗ замени" in item or "имени запроса" in item for item in checked["reasons"]))
         self.assertTrue(any("псевдоним" in item for item in checked["reasons"]))
 
     def test_star_select_is_rejected(self):
@@ -71,7 +71,7 @@ class PhraseGuideTest(unittest.TestCase):
             "ВЫБРАТЬ Юрлица.БИНИИН ИЗ Справочники.АВЮридическиеЛица КАК Юрлица",
             "Справочники.АВЮридическиеЛица",
         )
-        self.assertTrue(any("после ИЗ пиши" in item for item in checked["reasons"]))
+        self.assertTrue(any("в ИЗ замени" in item for item in checked["reasons"]))
         self.assertFalse(any(item.startswith("полей нет") and "Юрлица" in item for item in checked["reasons"]))
 
     def test_qualifier_is_not_a_missing_field(self):

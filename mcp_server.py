@@ -160,7 +160,7 @@ class OneCMetadataMCPServer:
     def search_metadata(self, query: str, category: Optional[str] = None) -> Dict[str, Any]:
         results = []
         query_lower = (query or "").lower().strip()
-        tokens = self._tokens(query_lower)
+        tokens = [token for token in self._tokens(query_lower) if token not in {"документ", "документы", "справочник", "справочники", "регистрнакопления", "регистрынакопления", "регистрсведений", "регистрысведений"}]
         intent = self._intent(query_lower)
         categories_to_search = [category] if category and category in self.metadata else self.metadata.keys()
 
@@ -176,7 +176,9 @@ class OneCMetadataMCPServer:
                 haystack = f"{cat} {entity_name} {details.get('Синоним', '')}".lower()
                 score = 0
                 synonym = str(details.get("Синоним") or "").lower()
-                if query_lower and query_lower in entity_name.lower():
+                if query_lower and (query_lower == full_name.lower() or query_lower == entity_name.lower()):
+                    score += 100
+                elif query_lower and query_lower in entity_name.lower():
                     score += 5
                 if synonym and any(token in synonym for token in tokens):
                     score += 8
@@ -298,12 +300,18 @@ class OneCMetadataMCPServer:
     def get_metadata_structure(self, entity_name: str) -> Dict[str, Any]:
         target_cat = None
         target_entity = entity_name or ""
+        section_name = None
         if "." in target_entity:
             target_cat, target_entity = target_entity.split(".", 1)
+            if "." in target_entity:
+                target_entity, section_name = target_entity.split(".", 1)
         target_cat = {
             "документ": "Документы",
+            "документы": "Документы",
             "справочник": "Справочники",
+            "справочники": "Справочники",
             "регистрнакопления": "РегистрыНакопления",
+            "регистрынакопления": "РегистрыНакопления",
             "регистрсведений": "РегистрыСведений",
         }.get((target_cat or "").lower(), target_cat)
 
@@ -314,13 +322,18 @@ class OneCMetadataMCPServer:
                 for ent_name, details in entities.items():
                     if ent_name.lower() == target_entity.lower():
                         structure = self._enrich_structure(cat, ent_name, details)
+                        tabular = structure.get("ТабличныеЧасти") or {}
+                        section = next((name for name in tabular if name.lower() == (section_name or "").lower()), None)
                         return {
                             "status": "success",
                             "category": cat,
                             "entity_name": ent_name,
                             "full_name": f"{cat}.{ent_name}",
                             "query_name": structure.get("ИмяВЗапросе"),
+                            "section": section,
+                            "section_fields": tabular.get(section, []) if section else [],
                             "structure": structure,
+                            "message": f"табличная часть {section} уже в карточке, отдельно не ищется" if section else "",
                         }
         return {
             "status": "error",
@@ -410,7 +423,7 @@ class OneCMetadataMCPServer:
         query_name = card.get("query_name") or ""
         if query_name and query_name not in text:
             if any(token in text for token in ("Справочники.", "Документы.", "РегистрыНакопления.")):
-                reasons.append(f"после ИЗ пиши {query_name}; в списке полей это имя не повторяй")
+                reasons.append(f"в ИЗ замени множественное имя на {query_name}; табличную часть отдельным объектом не ищи, она уже в карточке")
             else:
                 reasons.append(f"в тексте нет имени запроса {query_name}")
         links = structure.get("Связи") or []
@@ -498,7 +511,7 @@ class OneCMetadataMCPServer:
             ts_fields = {name.lower() for name in tabular[ts_name]}
             asked_ts = [name for name in field_names if name.lower() in ts_fields]
             if ts_name.lower() not in lowered and not asked_ts:
-                reasons.append(f"добавь {card.get('query_name')}.{ts_name} и поля табличной части; шапку бери через Ссылка")
+                reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК {ts_name}; карточку для неё заново не запрашивай")
         if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
             dimensions = structure.get("Измерения") or []
             if dimensions and not any(name.lower() in select_lower for name in dimensions):
