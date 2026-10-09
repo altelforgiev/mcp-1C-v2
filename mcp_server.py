@@ -451,10 +451,7 @@ class OneCMetadataMCPServer:
                             unknown.append(name)
                     if unknown:
                         reasons.append("полей нет в карточке: " + ", ".join(dict.fromkeys(unknown)))
-            if "авактивы" in (card.get("entity_name") or "").lower() and ".обороты(" in lowered:
-                missing = [name for name in ("Актив", "Учреждение", "ВидАктива") if name.lower() not in select_part.lower()]
-                if missing:
-                    reasons.append("для выбытия по регистру нужны измерения: " + ", ".join(missing))
+            reasons.extend(self._situational_replacements(statement, select_part, card, structure))
             alias = re.search(r"\)\s+КАК\s+([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE)
             if alias:
                 used = set(re.findall(r"([0-9A-Za-zА-Яа-яЁё_]+)\.", select_part))
@@ -468,6 +465,48 @@ class OneCMetadataMCPServer:
             "query_name": query_name,
             "reasons": reasons,
         }
+
+
+    def _situational_replacements(self, statement: str, select_part: str, card: Dict[str, Any], structure: Dict[str, Any]) -> List[str]:
+        """Замены по форме запроса и карточке, без имени конкретного объекта."""
+        reasons = []
+        lowered = statement.lower()
+        select_lower = select_part.lower()
+        category = card.get("category") or ""
+        tabular = structure.get("ТабличныеЧасти") or {}
+        attributes = [name for name in (structure.get("Реквизиты") or [])]
+        standards = [name.lower() for name in (structure.get("СтандартныеРеквизиты") or [])]
+        field_names = re.findall(r"(?:[0-9A-Za-zА-Яа-яЁё_]+\.)?([0-9A-Za-zА-Яа-яЁё_]+)", select_part)
+        field_names = [name for name in field_names if name.lower() not in {"как", "различные", "первые"}]
+        source = statement[top_keyword(statement, "из") or 0:] if top_keyword(statement, "из") is not None else ""
+        has_alias = re.search(r"\bкак\b", source, re.IGNORECASE) is not None
+        if len(field_names) > 1 and source and not has_alias:
+            reasons.append("после имени источника напиши КАК и тем же именем квалифицируй поля")
+        deleted = [name for name in field_names if name.lower().startswith("удалить")]
+        if deleted:
+            reasons.append("служебные реквизиты не выводи: " + ", ".join(dict.fromkeys(deleted)))
+        if category == "Документы" and "дата" in standards:
+            where_at = top_keyword(statement, "где")
+            where = statement[where_at:] if where_at is not None else ""
+            date_fields = [name for name in attributes if "дата" in name.lower() and name.lower() != "дата"]
+            for name in date_fields:
+                if re.search(r"\b" + re.escape(name) + r"\b", where, re.IGNORECASE):
+                    reasons.append(f"{name} → Дата")
+                    break
+        if category == "Документы" and len(tabular) == 1:
+            ts_name = next(iter(tabular))
+            ts_fields = {name.lower() for name in tabular[ts_name]}
+            asked_ts = [name for name in field_names if name.lower() in ts_fields]
+            if ts_name.lower() not in lowered and not asked_ts:
+                reasons.append(f"добавь {card.get('query_name')}.{ts_name} и поля табличной части; шапку бери через Ссылка")
+        if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
+            dimensions = structure.get("Измерения") or []
+            if dimensions and not any(name.lower() in select_lower for name in dimensions):
+                reasons.append("в списке полей нет измерений карточки: " + ", ".join(dimensions))
+        header_hits = [name for name in field_names if name in attributes and not name.lower().startswith("удалить")]
+        if category == "Документы" and tabular and len(header_hits) > 8 and not any(name.lower() in lowered for name in tabular):
+            reasons.append("оставь поля фразы и табличной части, не выгружай всю шапку")
+        return reasons
 
     @staticmethod
     def _query_columns(structure: Dict[str, Any], text: str = "") -> List[str]:

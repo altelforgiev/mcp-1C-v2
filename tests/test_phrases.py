@@ -157,3 +157,20 @@ class StatementSplitTest(unittest.TestCase):
         from mcp_server import split_statements
         text = 'ВЫБРАТЬ "а;б" КАК Поле ИЗ Справочник.Контрагенты КАК Контрагенты'
         self.assertEqual(len(split_statements(text)), 1)
+
+
+class SituationalReplacementTest(unittest.TestCase):
+    def test_document_dump_is_replaced_without_object_name_rule(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Учреждение, Склад, УдалитьАвтор, ДатаДокумента, СуммаДокумента "
+            "ИЗ Документ.АВСписаниеЗапасов ГДЕ ДатаДокумента МЕЖДУ &НачалоПериода И &КонецПериода",
+            "Документы.АВСписаниеЗапасов",
+        )
+        self.assertFalse(checked["ok"])
+        joined = " ".join(checked["reasons"])
+        self.assertIn("КАК", joined)
+        self.assertIn("УдалитьАвтор", joined)
+        self.assertIn("ДатаДокумента → Дата", joined)
+        self.assertIn("Запасы", joined)
+        self.assertNotIn("АВСписаниеЗапасов нужен", joined)
