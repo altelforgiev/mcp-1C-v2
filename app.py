@@ -84,6 +84,22 @@ def openai_tools():
                 },
             },
         },
+
+        {
+            "type": "function",
+            "function": {
+                "name": "query_syntax",
+                "description": "Правило формы по выбранному объекту. Готовый запрос не возвращает. Вызывай перед check_query.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_name": {"type": "string"},
+                        "phrase": {"type": "string"},
+                    },
+                    "required": ["entity_name"],
+                },
+            },
+        },
         {
             "type": "function",
             "function": {
@@ -278,18 +294,7 @@ def project_card(card: dict, phrase: str) -> str:
             continue
         shown = True
         lines.append(f"Табличная часть {ts_name}: " + ", ".join(matched[:8]))
-        lines.append(
-            "Образец формы, имена подставь из карточки:\n"
-            "ВЫБРАТЬ\n"
-            "    Шапка.Дата,\n"
-            f"    {ts_name}.{matched[0]}\n"
-            "ИЗ\n"
-            f"    {card.get('query_name')} КАК Шапка\n"
-            f"        ЛЕВОЕ СОЕДИНЕНИЕ {card.get('query_name')}.{ts_name} КАК {ts_name}\n"
-            f"        ПО Шапка.Ссылка = {ts_name}.Ссылка\n"
-            "ГДЕ\n"
-            "    Шапка.Дата МЕЖДУ &НачалоПериода И &КонецПериода"
-        )
+        lines.append("Форму строк запроси query_syntax. Готовый запрос не копируй.")
         break
     header = [name for name in (structure.get("Реквизиты") or []) if not name.lower().startswith("удалить") and hits(name)]
     if header:
@@ -432,7 +437,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
         })
     scheme = (
         "Объект уже выбран хостом. resolve_phrase и search_metadata не вызывать. "
-        "Напиши один текст запроса по урезанной карточке и сдай его в check_query."
+        "Сначала query_syntax по выбранному объекту, затем один текст и check_query."
         if chosen else
         "1. resolve_phrase по фразе клиента.\n"
         "2. search_metadata по ключевым словам.\n"
@@ -452,7 +457,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
         },
         {"role": "user", "content": user_text if not chosen else user_text + "\n\n" + project_card(direct_card, client_phrase(prompt, history))},
     ]
-    tool_set = [item for item in openai_tools() if item["function"]["name"] == "check_query"] if chosen else openai_tools()
+    tool_set = [item for item in openai_tools() if item["function"]["name"] in ("query_syntax", "check_query")] if chosen else openai_tools()
 
     for _ in range(MAX_TOOL_ROUNDS):
         message = llm_complete(messages, [] if reviewed else tool_set)

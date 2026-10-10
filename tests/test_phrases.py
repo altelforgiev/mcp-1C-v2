@@ -198,8 +198,9 @@ class ProjectedCardTest(unittest.TestCase):
         server = OneCMetadataMCPServer(METADATA)
         card = server.get_metadata_structure("Документы.АВСписаниеЗапасов")
         text = project_card(card, "списание запасов за сентябрь 2025")
-        self.assertIn("Документ.АВСписаниеЗапасов.Запасы", text)
+        self.assertIn("query_syntax", text)
         self.assertIn("Товар", text)
+        self.assertNotIn("ВЫБРАТЬ", text)
         self.assertNotIn("УдалитьАвтор", text)
         self.assertIn("resolve_phrase не вызывать", text)
 
@@ -216,7 +217,7 @@ class AliasDocumentTest(unittest.TestCase):
             "Документы.АВСписаниеЗапасов",
         )
         self.assertTrue(checked["ok"], checked["reasons"])
-        self.assertIn("Шапка", project_card_text())
+        self.assertIn("query_syntax", project_card_text())
 
     def test_table_name_in_fields_is_still_rejected(self):
         server = OneCMetadataMCPServer(METADATA)
@@ -243,3 +244,17 @@ class ModelViewTest(unittest.TestCase):
         self.assertIn("Запасы", view["tabular_sections"])
         self.assertNotIn("УдалитьАвтор", view.get("attributes") or [])
         self.assertIn("пустой", server.get_metadata_structure("")["message"])
+
+
+
+class QuerySyntaxTest(unittest.TestCase):
+    def test_forms_come_from_card_not_object_name(self):
+        server = OneCMetadataMCPServer(METADATA)
+        writeoff = server.query_syntax("Документы.АВСписаниеЗапасов", "списание запасов")
+        special = server.query_syntax("Документы.АВСписаниеСпецзапасов", "списание спецзапасов")
+        self.assertEqual(writeoff["forms"][0]["id"], "document_rows")
+        self.assertEqual(special["forms"][0]["id"], "document_rows")
+        self.assertIn("Запасы", writeoff["forms"][0]["source"])
+        turns = server.query_syntax("РегистрыНакопления.АВАктивы", "обороты")
+        self.assertEqual(turns["forms"][0]["id"], "turnovers")
+        self.assertNotIn("ВЫБРАТЬ", turns["forms"][0]["rule"])

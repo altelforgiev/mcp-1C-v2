@@ -640,6 +640,71 @@ class OneCMetadataMCPServer:
         }
         return {key: value for key, value in view.items() if value not in ("", [], {})}
 
+
+    def applicable_forms(self, card: Dict[str, Any], phrase: str = "") -> List[Dict[str, str]]:
+        """Формы по карточке, без имени конкретного объекта."""
+        if card.get("status") != "success":
+            return []
+        structure = card.get("structure") or {}
+        query_name = card.get("query_name") or ""
+        category = card.get("category") or ""
+        phrase_lower = (phrase or "").lower()
+        forms = []
+        if category == "Документы":
+            for ts_name in (structure.get("ТабличныеЧасти") or {}):
+                forms.append({
+                    "id": "document_rows",
+                    "source": f"{query_name}.{ts_name}",
+                    "rule": (
+                        f"Строки документа: ЛЕВОЕ СОЕДИНЕНИЕ {query_name}.{ts_name} КАК {ts_name} "
+                        f"ПО Шапка.Ссылка = {ts_name}.Ссылка. Период только по Дата. "
+                        "Поля строки квалифицируй псевдонимом табличной части."
+                    ),
+                })
+                break
+            for link in (structure.get("Связи") or [])[:2]:
+                if not str(link.get("тип") or "").startswith("Справочник."):
+                    continue
+                field = link.get("поле")
+                forms.append({
+                    "id": "reference_link",
+                    "source": link.get("тип"),
+                    "rule": (
+                        f"Реквизит-ссылка {field}: ЛЕВОЕ СОЕДИНЕНИЕ {link.get('тип')} "
+                        f"ПО Шапка.{field} = <псевдоним>.Ссылка. Не пиши Ссылка = Ссылка для справочника."
+                    ),
+                })
+        if category == "РегистрыНакопления":
+            virtual = structure.get("ВиртуальныеТаблицы") or {}
+            want_balance = "остат" in phrase_lower
+            want_turnover = "оборот" in phrase_lower or not want_balance
+            if want_balance and "Остатки" in virtual:
+                forms.append({
+                    "id": "balances",
+                    "source": virtual["Остатки"].get("пример", ""),
+                    "rule": "Остатки: " + virtual["Остатки"].get("пример", "") + " КАК Остатки. Ресурс с суффиксом Остаток. Пакет, ПОМЕСТИТЬ и УНИЧТОЖИТЬ не писать.",
+                })
+            if want_turnover and "Обороты" in virtual:
+                forms.append({
+                    "id": "turnovers",
+                    "source": virtual["Обороты"].get("пример", ""),
+                    "rule": "Обороты: " + virtual["Обороты"].get("пример", "") + " КАК Обороты. Ресурс с суффиксом Оборот. Период в параметрах виртуальной таблицы.",
+                })
+        return forms
+
+    def query_syntax(self, entity_name: str, phrase: str = "") -> Dict[str, Any]:
+        card = self.get_metadata_structure(entity_name)
+        if card.get("status") != "success":
+            return card
+        forms = self.applicable_forms(card, phrase)
+        return {
+            "status": "success",
+            "entity_name": card.get("full_name"),
+            "query_name": card.get("query_name"),
+            "forms": forms,
+            "message": "Готовый запрос не подставляю. Напиши текст по правилу и сдай его в check_query.",
+        }
+
     def handle_mcp_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         method = request.get("method")
         params = request.get("params", {})
@@ -678,6 +743,8 @@ class OneCMetadataMCPServer:
                 res = self.model_view(self.get_metadata_structure(arguments.get("entity_name", "")))
             elif tool_name == "resolve_phrase":
                 res = self.resolve_phrase(arguments.get("phrase", ""))
+            elif tool_name == "query_syntax":
+                res = self.query_syntax(arguments.get("entity_name", ""), arguments.get("phrase", ""))
             elif tool_name == "check_query":
                 res = self.check_query(arguments.get("bsl_code", ""), arguments.get("entity_name", ""))
             else:
@@ -736,6 +803,19 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {"phrase": {"type": "string", "description": "Фраза клиента целиком."}},
                 "required": ["phrase"],
+            },
+        },
+
+        {
+            "name": "query_syntax",
+            "description": "Правило формы запроса по уже открытой карточке. Готовый текст не возвращает. Вызывай перед check_query.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "entity_name": {"type": "string"},
+                    "phrase": {"type": "string", "description": "Фраза клиента: строки, период, остатки или обороты."},
+                },
+                "required": ["entity_name"],
             },
         },
         {
