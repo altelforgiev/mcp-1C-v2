@@ -337,7 +337,7 @@ class OneCMetadataMCPServer:
                         }
         return {
             "status": "error",
-            "message": f"Entity '{entity_name}' not found in metadata schema.",
+            "message": f"Entity '{entity_name}' not found in metadata schema." if (entity_name or "").strip() else "entity_name пустой: передай имя объекта из поиска или кнопки",
         }
 
     @staticmethod
@@ -612,6 +612,34 @@ class OneCMetadataMCPServer:
             payload = json.load(handle)
         return payload.get("phrases", [])
 
+
+    @staticmethod
+    def model_view(card: Dict[str, Any]) -> Dict[str, Any]:
+        """Ответ tool для модели: без служебных реквизитов и без полной шапки."""
+        if card.get("status") != "success":
+            return card
+        structure = card.get("structure") or {}
+        tabular = {
+            name: [field for field in fields if not str(field).lower().startswith("удалить")][:12]
+            for name, fields in (structure.get("ТабличныеЧасти") or {}).items()
+        }
+        attributes = [name for name in (structure.get("Реквизиты") or []) if not str(name).lower().startswith("удалить")][:8]
+        view = {
+            "status": "success",
+            "category": card.get("category"),
+            "entity_name": card.get("entity_name"),
+            "full_name": card.get("full_name"),
+            "query_name": card.get("query_name"),
+            "synonym": structure.get("Синоним") or "",
+            "standard_fields": structure.get("СтандартныеРеквизиты") or [],
+            "attributes": attributes,
+            "tabular_sections": tabular,
+            "links": structure.get("Связи") or [],
+            "virtual_tables": structure.get("ВиртуальныеТаблицы") or {},
+            "message": card.get("message") or "",
+        }
+        return {key: value for key, value in view.items() if value not in ("", [], {})}
+
     def handle_mcp_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         method = request.get("method")
         params = request.get("params", {})
@@ -647,7 +675,7 @@ class OneCMetadataMCPServer:
             elif tool_name == "search_metadata":
                 res = self.search_metadata(arguments.get("query", ""), arguments.get("category"))
             elif tool_name == "get_metadata_structure":
-                res = self.get_metadata_structure(arguments.get("entity_name", ""))
+                res = self.model_view(self.get_metadata_structure(arguments.get("entity_name", "")))
             elif tool_name == "resolve_phrase":
                 res = self.resolve_phrase(arguments.get("phrase", ""))
             elif tool_name == "check_query":
@@ -661,7 +689,7 @@ class OneCMetadataMCPServer:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "result": {"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False, indent=2)}]},
+                "result": {"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False, separators=(",", ":"))}]},
             }
 
         return {

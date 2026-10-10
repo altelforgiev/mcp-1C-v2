@@ -233,3 +233,13 @@ def project_card_text():
     server = OneCMetadataMCPServer(METADATA)
     card = server.get_metadata_structure("Документы.АВСписаниеЗапасов")
     return project_card(card, "списание запасов за сентябрь 2025")
+
+
+class ModelViewTest(unittest.TestCase):
+    def test_mcp_card_hides_deleted_attributes(self):
+        server = OneCMetadataMCPServer(METADATA)
+        view = server.model_view(server.get_metadata_structure("Документы.АВСписаниеЗапасов"))
+        self.assertEqual(view["query_name"], "Документ.АВСписаниеЗапасов")
+        self.assertIn("Запасы", view["tabular_sections"])
+        self.assertNotIn("УдалитьАвтор", view.get("attributes") or [])
+        self.assertIn("пустой", server.get_metadata_structure("")["message"])
