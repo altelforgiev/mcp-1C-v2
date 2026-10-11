@@ -302,3 +302,15 @@ class FieldQualificationTest(unittest.TestCase):
         self.assertIn("Документ.АВСписаниеЗапасов.Запасы", fixed)
         checked = OneCMetadataMCPServer(METADATA).check_query(fixed, "Документы.АВСписаниеЗапасов")
         self.assertTrue(checked.get("ok"))
+
+
+class PeriodFormTest(unittest.TestCase):
+    def test_date_function_is_not_a_period(self):
+        from app import fix_period
+        server = OneCMetadataMCPServer(METADATA)
+        src = (
+            "ВЫБРАТЬ Шапка.Дата ИЗ Документ.АВСписаниеЗапасов КАК Шапка "
+            "ГДЕ Шапка.Дата ДАТА(&НачалоПериода) И Шапка.Дата <= &КонецПериода"
+        )
+        self.assertTrue(any("МЕЖДУ" in item for item in server.check_query(src, "Документы.АВСписаниеЗапасов")["reasons"]))
+        self.assertIn("МЕЖДУ &НачалоПериода И &КонецПериода", fix_period(src))

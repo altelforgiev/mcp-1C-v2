@@ -548,6 +548,8 @@ class OneCMetadataMCPServer:
         deleted = [name for name in field_names if name.lower().startswith("удалить")]
         if deleted:
             reasons.append("служебные реквизиты не выводи: " + ", ".join(dict.fromkeys(deleted)))
+        if category == "Документы" and re.search(r"дата\s*\(\s*&", lowered):
+            reasons.append("ДАТА(&Параметр) не период: пиши Дата МЕЖДУ &НачалоПериода И &КонецПериода")
         if category == "Документы" and "дата" in standards:
             where_at = top_keyword(statement, "где")
             where = statement[where_at:] if where_at is not None else ""

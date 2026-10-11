@@ -171,6 +171,17 @@ def query_name_from_text(bsl: str) -> str:
 
 
 
+
+def fix_period(bsl: str) -> str:
+    """Дата ДАТА(&Параметр) не период. Приводит к МЕЖДУ, секцию ИЗ не трогает."""
+    return re.sub(
+        r"([0-9A-Za-zА-Яа-яЁё_]+\.дата)\s+дата\s*\(\s*(&[0-9A-Za-zА-Яа-яЁё_]+)\s*\)\s+и\s+\1\s*<=\s*(&[0-9A-Za-zА-Яа-яЁё_]+)",
+        r"\1 МЕЖДУ \2 И \3",
+        bsl or "",
+        flags=re.IGNORECASE,
+    )
+
+
 def qualify_fields(bsl: str) -> str:
     """В списке полей путь метаданных заменяется псевдонимом. Секцию ИЗ не меняет."""
     text = bsl or ""
@@ -648,7 +659,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = qualify_fields(parsed.get("bsl_code", ""))
+        bsl = fix_period(qualify_fields(parsed.get("bsl_code", "")))
         if not reviewed:
             reviewed = True
             card = last_card(trace, server)
