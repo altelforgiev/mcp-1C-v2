@@ -258,3 +258,19 @@ class QuerySyntaxTest(unittest.TestCase):
         turns = server.query_syntax("РегистрыНакопления.АВАктивы", "обороты")
         self.assertEqual(turns["forms"][0]["id"], "turnovers")
         self.assertNotIn("ВЫБРАТЬ", turns["forms"][0]["rule"])
+
+
+class BalanceRankingTest(unittest.TestCase):
+    def test_asset_balances_prefer_asset_register(self):
+        server = OneCMetadataMCPServer(METADATA)
+        found = server.search_metadata("остатки активов")
+        self.assertEqual(found["results"][0]["full_name"], "РегистрыНакопления.АВАктивы")
+
+    def test_balance_parameter_name_is_exact(self):
+        server = OneCMetadataMCPServer(METADATA)
+        checked = server.check_query(
+            "ВЫБРАТЬ Остатки.Актив, Остатки.КоличествоОстаток "
+            "ИЗ РегистрНакопления.АВАктивы.Остатки(&ДатаОстатторов, ) КАК Остатки",
+            "РегистрыНакопления.АВАктивы",
+        )
+        self.assertTrue(any("ДатаОстатков" in item for item in checked["reasons"]))

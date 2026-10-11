@@ -268,9 +268,14 @@ class OneCMetadataMCPServer:
         dims = details.get("Измерения", [])
         probe = {"dimensions": dims}
         score = 0
-        if category == "РегистрыНакопления" and self._warehouse_goods(probe):
+        goods = any(token in query_lower for token in ("товар", "склад", "запас"))
+        if category == "РегистрыНакопления" and self._warehouse_goods(probe) and goods:
             score += 25
-        if category == "РегистрыНакопления" and "склад" in entity_name.lower():
+        elif category == "РегистрыНакопления" and self._warehouse_goods(probe) and "актив" in query_lower:
+            score -= 20
+        if category == "РегистрыНакопления" and "актив" in query_lower and "актив" in entity_name.lower():
+            score += 30
+        if category == "РегистрыНакопления" and "склад" in entity_name.lower() and goods:
             score += 8
         lowered = entity_name.lower()
         if "парти" in query_lower and "парти" in lowered:
@@ -526,6 +531,8 @@ class OneCMetadataMCPServer:
             source_path = f"{card.get('query_name')}.{ts_name}".lower()
             if source_path not in lowered:
                 reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК {ts_name}; карточку для неё заново не запрашивай")
+        if category == "РегистрыНакопления" and ".остатки(" in lowered and "&датаостатков" not in lowered:
+            reasons.append("параметр остатков пиши &ДатаОстатков, не другое имя")
         if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
             dimensions = structure.get("Измерения") or []
             if dimensions and not any(name.lower() in select_lower for name in dimensions):
