@@ -274,3 +274,14 @@ class BalanceRankingTest(unittest.TestCase):
             "РегистрыНакопления.АВАктивы",
         )
         self.assertTrue(any("ДатаОстатков" in item for item in checked["reasons"]))
+
+
+class AmbiguousRegisterTest(unittest.TestCase):
+    def test_close_registers_ask_instead_of_first(self):
+        server = OneCMetadataMCPServer(METADATA)
+        resolved = server.resolve_phrase("остатки активов на 30 сентября 2025")
+        self.assertTrue(resolved["need_clarification"])
+        objects = [item["object"] for item in resolved["candidates"]]
+        self.assertIn("РегистрыНакопления.АВАктивы", objects)
+        self.assertGreater(len(objects), 1)
+        self.assertFalse(server.resolve_phrase("остатки товаров на складах")["need_clarification"])

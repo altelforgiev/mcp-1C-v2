@@ -385,6 +385,40 @@ class OneCMetadataMCPServer:
                 })
         return links[:8]
 
+
+    def ambiguous_objects(self, phrase: str) -> Dict[str, Any]:
+        """Несколько близких объектов одной категории — кнопка, не первый из списка."""
+        found = self.search_metadata(phrase)
+        intent = found.get("intent")
+        if intent in ("остатки", "обороты"):
+            category, kind = "РегистрыНакопления", "регистр"
+        else:
+            return {}
+        ranked = [
+            item for item in (found.get("results") or [])
+            if item.get("category") == category and item.get("score", 0) > 0
+        ]
+        if len(ranked) < 2:
+            return {}
+        leader = ranked[0]["score"]
+        close = [item for item in ranked if leader - item["score"] <= 6][:4]
+        if len(close) < 2:
+            return {}
+        candidates = []
+        for item in close:
+            card = self.get_metadata_structure(item["full_name"])
+            candidates.append({
+                "object": item["full_name"],
+                "query_name": card.get("query_name") or "",
+                "period": "&ДатаОстатков" if intent == "остатки" else "&НачалоПериода и &КонецПериода",
+            })
+        names = ", ".join(item["entity_name"] for item in close)
+        return {
+            "need_clarification": True,
+            "question": f"Какой {kind} нужен: {names}?",
+            "candidates": candidates,
+        }
+
     def resolve_phrase(self, phrase: str) -> Dict[str, Any]:
         text = (phrase or "").lower()
         text_stems = {stem_token(token) for token in self._tokens(text)}
@@ -400,13 +434,14 @@ class OneCMetadataMCPServer:
                     "candidates": rule.get("candidates", []),
                     "not": rule.get("not", []),
                 }
+        ambiguous = self.ambiguous_objects(phrase)
         return {
             "status": "success",
             "phrase": phrase,
             "matched": None,
-            "need_clarification": False,
-            "question": "",
-            "candidates": [],
+            "need_clarification": bool(ambiguous.get("need_clarification")),
+            "question": ambiguous.get("question", ""),
+            "candidates": ambiguous.get("candidates", []),
             "not": [],
         }
 
