@@ -567,7 +567,7 @@ class OneCMetadataMCPServer:
             ts_name = next(iter(tabular))
             source_path = f"{card.get('query_name')}.{ts_name}".lower()
             if source_path not in lowered:
-                reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК {ts_name}; карточку для неё заново не запрашивай")
+                reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК Строки; карточку для неё заново не запрашивай")
         if category == "РегистрыНакопления" and ".остатки(" in lowered and "&датаостатков" not in lowered:
             reasons.append("параметр остатков пиши &ДатаОстатков, не другое имя")
         if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
@@ -700,9 +700,9 @@ class OneCMetadataMCPServer:
                     "id": "document_rows",
                     "source": f"{query_name}.{ts_name}",
                     "rule": (
-                        f"Строки документа: ЛЕВОЕ СОЕДИНЕНИЕ {query_name}.{ts_name} КАК {ts_name} "
-                        f"ПО Шапка.Ссылка = {ts_name}.Ссылка. Период только по Дата. "
-                        "Поля строки квалифицируй псевдонимом табличной части."
+                        f"Строки документа: ЛЕВОЕ СОЕДИНЕНИЕ {query_name}.{ts_name} КАК Строки "
+                        f"ПО Шапка.Ссылка = Строки.Ссылка. Период только по Дата. "
+                        "Поля строки квалифицируй псевдонимом Строки, не именем табличной части."
                     ),
                 })
                 break
