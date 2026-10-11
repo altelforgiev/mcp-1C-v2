@@ -170,6 +170,31 @@ def query_name_from_text(bsl: str) -> str:
     return f"{category}.{name}"
 
 
+
+def qualify_fields(bsl: str) -> str:
+    """В списке полей путь метаданных заменяется псевдонимом. Секцию ИЗ не меняет."""
+    text = bsl or ""
+    aliases = re.findall(
+        r"((?:справочник|документ|регистрнакопления)\.[0-9A-Za-zА-Яа-яЁё_]+)\s+как\s+([0-9A-Za-zА-Яа-яЁё_]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if not aliases:
+        return text
+    start = re.search(r"\bвыбрать\b", text, re.IGNORECASE)
+    end = re.search(r"\bиз\b", text, re.IGNORECASE)
+    if not start or not end or end.start() <= start.end():
+        return text
+    head, fields, tail = text[:start.end()], text[start.end():end.start()], text[end.start():]
+    for path, alias in aliases:
+        fields = re.sub(
+            r"(?i)" + re.escape(path) + r"\.([0-9A-Za-zА-Яа-яЁё_]+)",
+            lambda match, alias=alias: f"{alias}.{match.group(1)}",
+            fields,
+        )
+    return head + fields + tail
+
+
 def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer) -> list:
     reasons = []
     text = bsl or ""
@@ -623,7 +648,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = parsed.get("bsl_code", "")
+        bsl = qualify_fields(parsed.get("bsl_code", ""))
         if not reviewed:
             reviewed = True
             card = last_card(trace, server)

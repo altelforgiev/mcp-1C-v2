@@ -285,3 +285,20 @@ class AmbiguousRegisterTest(unittest.TestCase):
         self.assertIn("РегистрыНакопления.АВАктивы", objects)
         self.assertGreater(len(objects), 1)
         self.assertFalse(server.resolve_phrase("остатки товаров на складах")["need_clarification"])
+
+
+class FieldQualificationTest(unittest.TestCase):
+    def test_metadata_path_in_fields_becomes_alias(self):
+        from app import qualify_fields
+        from mcp_server import OneCMetadataMCPServer
+        src = (
+            "ВЫБРАТЬ Документ.АВСписаниеЗапасов.Дата, Запасы.Товар "
+            "ИЗ Документ.АВСписаниеЗапасов КАК Шапка "
+            "ЛЕВОЕ СОЕДИНЕНИЕ Документ.АВСписаниеЗапасов.Запасы КАК Запасы "
+            "ПО Шапка.Ссылка = Запасы.Ссылка"
+        )
+        fixed = qualify_fields(src)
+        self.assertIn("Шапка.Дата", fixed)
+        self.assertIn("Документ.АВСписаниеЗапасов.Запасы", fixed)
+        checked = OneCMetadataMCPServer(METADATA).check_query(fixed, "Документы.АВСписаниеЗапасов")
+        self.assertTrue(checked.get("ok"))
