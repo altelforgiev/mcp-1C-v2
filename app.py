@@ -172,6 +172,34 @@ def query_name_from_text(bsl: str) -> str:
 
 
 
+
+def fix_sources(bsl: str) -> str:
+    """Источник табличной части пишется путём документа, не псевдонимом шапки."""
+    body = bsl or ""
+    aliases = re.findall(
+        r"((?:справочник|документ|регистрнакопления)\.[0-9A-Za-zА-Яа-яЁё_]+)\s+как\s+([0-9A-Za-zА-Яа-яЁё_]+)",
+        body,
+        re.IGNORECASE,
+    )
+    for path, alias in aliases:
+        body = re.sub(
+            r"(?i)(соединение\s+)" + re.escape(alias) + r"\.([0-9A-Za-zА-Яа-яЁё_]+)",
+            lambda match, path=path: f"{match.group(1)}{path}.{match.group(2)}",
+            body,
+        )
+    return body
+
+
+def fix_date_literals(bsl: str) -> str:
+    """Дата строкой в ГДЕ заменяется параметрами периода."""
+    return re.sub(
+        r"([0-9A-Za-zА-Яа-яЁё_]+\.дата)\s*>=\s*'20\d\d-\d\d-\d\d'\s+и\s+\1\s*<=\s*'20\d\d-\d\d-\d\d'",
+        r"\1 МЕЖДУ &НачалоПериода И &КонецПериода",
+        bsl or "",
+        flags=re.IGNORECASE,
+    )
+
+
 def fix_period(bsl: str) -> str:
     """Дата ДАТА(&Параметр) не период. Приводит к МЕЖДУ, секцию ИЗ не трогает."""
     return re.sub(
@@ -239,7 +267,7 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
     if statements and statements[-1].lower().startswith("уничтожить"):
         reasons.append("пакет кончается УНИЧТОЖИТЬ, итоговой выборки нет")
     if re.search(r"где[\s\S]{0,200}'20\d\d-\d\d-\d\d'", lowered):
-        reasons.append("дата написана строкой в ГДЕ; для остатка оставь &ДатаОстатков в параметре виртуальной таблицы")
+        reasons.append("дата написана строкой в ГДЕ; оставь параметр &НачалоПериода и &КонецПериода")
     for card in cards:
         for section in ((card.get("structure") or {}).get("ТабличныеЧасти") or {}):
             if f".{section.lower()}." in lowered:
@@ -678,7 +706,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = fix_period(qualify_fields(parsed.get("bsl_code", "")))
+        bsl = fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", "")))))
         rejected = [step for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected" and (step.get("arguments") or {}).get("bsl_code")]
         if not reviewed and rejected:
             reviewed = True

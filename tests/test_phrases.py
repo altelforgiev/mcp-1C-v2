@@ -314,3 +314,18 @@ class PeriodFormTest(unittest.TestCase):
         )
         self.assertTrue(any("МЕЖДУ" in item for item in server.check_query(src, "Документы.АВСписаниеЗапасов")["reasons"]))
         self.assertIn("МЕЖДУ &НачалоПериода И &КонецПериода", fix_period(src))
+
+
+class SourceAndDateTest(unittest.TestCase):
+    def test_alias_section_and_date_literal_are_normalized(self):
+        from app import fix_sources, fix_date_literals
+        src = (
+            "ВЫБРАТЬ Шапка.Дата ИЗ Документ.АВСписаниеЗапасов КАК Шапка "
+            "ЛЕВОЕ СОЕДИНЕНИЕ Шапка.Запасы КАК Запасы ПО Шапка.Ссылка = Запасы.Ссылка "
+            "ГДЕ Шапка.Дата >= '2025-09-01' И Шапка.Дата <= '2025-09-30'"
+        )
+        fixed = fix_date_literals(fix_sources(src))
+        self.assertIn("Документ.АВСписаниеЗапасов.Запасы", fixed)
+        self.assertIn("МЕЖДУ &НачалоПериода И &КонецПериода", fixed)
+        checked = OneCMetadataMCPServer(METADATA).check_query(fixed, "Документы.АВСписаниеЗапасов")
+        self.assertTrue(checked.get("ok"))
