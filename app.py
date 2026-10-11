@@ -428,8 +428,8 @@ def preview_result(result: dict) -> str:
         names = [item.get("full_name") for item in result.get("results", [])[:5]]
         return f"найдено {result.get('total_found', 0)}: {', '.join(names)}"
     if "full_name" in result:
-        fields = list((result.get("structure") or {}).keys())
-        return f"{result['full_name']}: {', '.join(fields)}"
+        tabs = ", ".join((result.get("structure") or {}).get("ТабличныеЧасти") or {})
+        return f"{result['full_name']}" + (f", ТЧ {tabs}" if tabs else "")
     if "categories" in result:
         return "категорий: " + str(len(result["categories"]))
     if result.get("matched") is None and "need_clarification" in result:
@@ -475,7 +475,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
         })
     scheme = (
         "Объект уже выбран хостом. resolve_phrase и search_metadata не вызывать. "
-        "Сначала query_syntax по выбранному объекту, затем один текст и check_query."
+        "Сначала один query_syntax, затем один непустой текст в check_query. Пустой check_query не вызывать. Повтор того же отказа не делать."
         if chosen else
         "1. resolve_phrase по фразе клиента.\n"
         "2. search_metadata по ключевым словам.\n"
@@ -518,6 +518,25 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     arguments = {}
                 if name == "check_query" and not (arguments.get("entity_name") or "").strip():
                     arguments["entity_name"] = (chosen or {}).get("object") or query_name_from_text(arguments.get("bsl_code", ""))
+                if name == "check_query" and not (arguments.get("bsl_code") or "").strip():
+                    result = {
+                        "status": "need_text",
+                        "ok": False,
+                        "reasons": ["сначала напиши текст по правилу query_syntax, затем check_query"],
+                    }
+                    trace.append({
+                        "actor": "host",
+                        "tool": name,
+                        "arguments": arguments,
+                        "status": "need_text",
+                        "preview": result["reasons"][0],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call.get("id", name),
+                        "content": json.dumps(result, ensure_ascii=False),
+                    })
+                    continue
                 result = call_mcp_tool(server, name, arguments)
                 if name == "check_query":
                     open_join_target(server, trace, arguments.get("bsl_code", ""))
@@ -660,10 +679,11 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
             }
 
         bsl = fix_period(qualify_fields(parsed.get("bsl_code", "")))
-        if not reviewed:
+        rejected = [step for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected" and (step.get("arguments") or {}).get("bsl_code")]
+        if not reviewed and rejected:
             reviewed = True
             card = last_card(trace, server)
-            rejected = [step.get("preview", "") for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected"]
+            rejected = [step.get("preview", "") for step in rejected]
             messages.append({"role": "assistant", "content": content or ""})
             messages.append({"role": "user", "content": review_prompt(prompt, bsl, card) + ("\nОтказ хоста: " + rejected[-1] if rejected else "")})
             trace.append({
