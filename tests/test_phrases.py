@@ -284,7 +284,9 @@ class AmbiguousRegisterTest(unittest.TestCase):
         objects = [item["object"] for item in resolved["candidates"]]
         self.assertIn("РегистрыНакопления.АВАктивы", objects)
         self.assertGreater(len(objects), 1)
-        self.assertFalse(server.resolve_phrase("остатки товаров на складах")["need_clarification"])
+        goods = server.resolve_phrase("остатки товаров на складах")
+        self.assertTrue(goods["need_clarification"])
+        self.assertIn("РегистрыНакопления.АВТоварыНаСкладах", [item["object"] for item in goods["candidates"]])
 
 
 class FieldQualificationTest(unittest.TestCase):

@@ -192,7 +192,7 @@ class OneCMetadataMCPServer:
                         score += 6
                     elif token in haystack or (stemmed and stemmed in synonym_stems):
                         score += 1
-                    if cat == "Справочники" and stemmed in ("списан", "выбыт", "перемещ", "инвентаризац"):
+                    if cat == "Справочники" and stemmed and stemmed not in name_stems:
                         score -= 4
                 for req in details.get("Реквизиты", []):
                     if self._field_hit(req, query_lower, tokens, intent, field_synonyms.get(req)):
@@ -232,7 +232,7 @@ class OneCMetadataMCPServer:
         limited = results[: self.max_search_results]
         balance_candidates = [
             item["full_name"] for item in results
-            if item["category"] == "РегистрыНакопления" and self._warehouse_goods(item)
+            if item["category"] == "РегистрыНакопления"
         ]
         return {
             "status": "success",
@@ -247,47 +247,31 @@ class OneCMetadataMCPServer:
 
     @staticmethod
     def _intent(query_lower: str) -> Optional[str]:
-        if "инвентар" in query_lower:
-            return None
-        if "остат" in query_lower:
+        words = re.findall(r"[0-9a-zа-яё]+", query_lower or "")
+        if any(word.startswith("остат") for word in words):
             return "остатки"
-        if "оборот" in query_lower:
+        if any(word.startswith("оборот") for word in words):
             return "обороты"
         return None
-
-    @staticmethod
-    def _warehouse_goods(item: Dict[str, Any]) -> bool:
-        dims = [name.lower() for name in item.get("dimensions", [])]
-        has_store = any("склад" in name for name in dims)
-        has_goods = any(token in name for name in dims for token in ("товар", "номенклат"))
-        return has_store and has_goods
 
     def _intent_boost(self, intent: Optional[str], category: str, entity_name: str, details: Dict[str, Any], query_lower: str) -> int:
         if intent not in ("остатки", "обороты"):
             return 0
-        dims = details.get("Измерения", [])
-        probe = {"dimensions": dims}
-        score = 0
-        goods = any(token in query_lower for token in ("товар", "склад", "запас"))
-        if category == "РегистрыНакопления" and self._warehouse_goods(probe) and goods:
-            score += 25
-        elif category == "РегистрыНакопления" and self._warehouse_goods(probe) and "актив" in query_lower:
-            score -= 20
-        if category == "РегистрыНакопления" and "актив" in query_lower and "актив" in entity_name.lower():
-            score += 30
-        if category == "РегистрыНакопления" and "склад" in entity_name.lower() and goods:
-            score += 8
-        lowered = entity_name.lower()
-        if "парти" in query_lower and "парти" in lowered:
-            score += 12
-        if "виртуал" in query_lower and "виртуал" in lowered:
-            score += 12
-        if "забаланс" in query_lower and "забаланс" in lowered:
-            score += 12
         if category == "Документы":
-            score -= 15
-        if intent == "остатки" and category == "РегистрыНакопления" and lowered == "автоварынаскладах" and "парти" not in query_lower and "виртуал" not in query_lower and "забаланс" not in query_lower:
-            score += 10
+            return -15
+        if category != "РегистрыНакопления":
+            return 0
+        score = 0
+        name = entity_name.lower()
+        dims = " ".join(details.get("Измерения") or []).lower()
+        for token in re.findall(r"[0-9a-zа-яё]+", query_lower or ""):
+            stemmed = stem_token(token)
+            if len(stemmed) < 4 or stemmed in {"остат", "оборот"}:
+                continue
+            if stemmed in name or token in name:
+                score += 8
+            if token in dims or stemmed in dims:
+                score += 6
         return score
 
     @staticmethod
@@ -823,7 +807,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Ключевые слова, например 'реализация' или 'товары склады'."},
+                    "query": {"type": "string", "description": "Ключевые слова фразы, без категории."},
                     "category": {"type": "string", "description": "Необязательная категория, например 'РегистрыНакопления'."},
                 },
                 "required": ["query"],
@@ -835,7 +819,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "entity_name": {"type": "string", "description": "Имя из поиска, лучше полное: 'Документы.АВРеализацияЗапасовИУслуг'."},
+                    "entity_name": {"type": "string", "description": "Имя из поиска, лучше полное: Категория.Имя."},
                 },
                 "required": ["entity_name"],
             },
