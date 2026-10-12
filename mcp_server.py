@@ -550,6 +550,8 @@ class OneCMetadataMCPServer:
         query_name = card.get("query_name") or ""
         extra = re.findall(re.escape(query_name) + r"\.([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE) if query_name else []
         sections = {name.lower() for name in tabular}
+        if category == "РегистрыНакопления":
+            sections.update({"остатки", "обороты", "остаткииобороты"})
         unknown_source = [name for name in extra if name.lower() not in sections]
         if unknown_source:
             reasons.append(f"после {query_name} можно только табличную часть; {unknown_source[0]} в карточке нет")

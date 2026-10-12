@@ -176,6 +176,12 @@ def query_name_from_text(bsl: str) -> str:
 
 
 
+
+def unescape_query(bsl: str) -> str:
+    """Буквальный \\n в тексте запроса — перевод строки, не имя поля."""
+    return (bsl or "").replace("\\n", "\n").replace("\\t", "\t")
+
+
 def fix_unknown_fields(bsl: str, card: dict) -> str:
     """Нет поля в карточке — единственное совпадение основы, иначе поле убирается."""
     structure = (card or {}).get("structure") or {}
@@ -614,6 +620,8 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                     arguments = {}
                 if name == "check_query" and not (arguments.get("entity_name") or "").strip():
                     arguments["entity_name"] = (chosen or {}).get("object") or query_name_from_text(arguments.get("bsl_code", ""))
+                if name == "check_query":
+                    arguments["bsl_code"] = unescape_query(arguments.get("bsl_code") or "")
                 if name == "check_query" and not (arguments.get("bsl_code") or "").strip():
                     result = {
                         "status": "need_text",
@@ -774,7 +782,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = fix_unknown_fields(fix_single_date(fix_header_source(fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", ""))))))), last_card(trace, server))
+        bsl = unescape_query(fix_unknown_fields(fix_single_date(fix_header_source(fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", ""))))))), last_card(trace, server)))
         rejected = [step for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected" and (step.get("arguments") or {}).get("bsl_code")]
         if not reviewed and rejected:
             reviewed = True
