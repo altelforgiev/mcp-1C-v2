@@ -307,6 +307,8 @@ def matching_candidates(prompt: str, resolved: dict) -> list:
             exact.append(item)
     if exact:
         return exact
+    if len(tokens) > 4:
+        return []
     scored = []
     for item in resolved.get("candidates", []):
         blob = f"{item.get('object', '')} {item.get('query_name', '')}"
