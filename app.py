@@ -272,8 +272,6 @@ def check_bsl(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServer)
         for section in ((card.get("structure") or {}).get("ТабличныеЧасти") or {}):
             if f".{section.lower()}." in lowered:
                 reasons.append(f"табличная часть {section} написана точкой, а не отдельной таблицей")
-    if "незадан" in lowered:
-        reasons.append("поля НеЗадан нет в карточке")
     reasons.extend(mixed_script(text))
     return list(dict.fromkeys(reasons))
 
@@ -297,9 +295,10 @@ def accept_query(prompt: str, bsl: str, trace: list, server: OneCMetadataMCPServ
 
 
 def matching_candidates(prompt: str, resolved: dict) -> list:
-    """Один кандидат. Короткое имя сравнивается целиком: АВАктивы не часть АВВыбытиеАктивов."""
+    """Один кандидат. Короткое имя целиком, иначе общая основа с именем объекта."""
     text = (prompt or "").strip().lower()
     tokens = set(re.findall(r"[0-9a-zа-яё_]+", text))
+    stems = {stem_token(token) for token in tokens if len(stem_token(token)) >= 4}
     exact = []
     for item in resolved.get("candidates", []):
         obj = item.get("object") or ""
@@ -308,14 +307,19 @@ def matching_candidates(prompt: str, resolved: dict) -> list:
             exact.append(item)
     if exact:
         return exact
-    candidates = resolved.get("candidates", [])
-    if "оборот" in text or "регистр" in text:
-        return [item for item in candidates if item.get("object", "").startswith("Регистры")]
-    if ("документ выбытия" in text or "выбытие активов" in text) and "реализац" not in text:
-        return [item for item in candidates if "ВыбытиеАктивов" in item.get("object", "")]
-    if "юридическ" in text or "юрлицу" in text:
-        return [item for item in candidates if "ЮрЛицу" in item.get("object", "")]
-    return []
+    scored = []
+    for item in resolved.get("candidates", []):
+        blob = f"{item.get('object', '')} {item.get('query_name', '')}"
+        spaced = re.sub(r"(?<=[А-ЯЁA-Z])(?=[А-ЯЁA-Z][а-яёa-z])", " ", blob)
+        spaced = re.sub(r"(?<=[а-яёa-z])(?=[А-ЯЁA-Z])", " ", spaced)
+        name_stems = {stem_token(part) for part in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", spaced.lower())}
+        hits = {item for item in stems & name_stems if len(item) >= 4}
+        if hits:
+            scored.append((len(hits), item))
+    if not scored:
+        return []
+    best = max(score for score, _ in scored)
+    return [item for score, item in scored if score == best]
 
 
 
@@ -348,12 +352,9 @@ def project_card(card: dict, phrase: str) -> str:
 
     shown = False
     for ts_name, fields in tabular.items():
-        matched = [name for name in fields if not name.lower().startswith("удалить") and "счет" not in name.lower() and hits(name)]
-        preferred = [name for name in fields if name.lower() in ("товар", "количество", "сумма")]
-        if preferred and (not matched or any(item in stems for item in ("запас", "списан", "товар"))):
-            matched = preferred
-        elif not matched and len(tabular) == 1:
-            matched = preferred
+        matched = [name for name in fields if not name.lower().startswith("удалить") and hits(name)]
+        if not matched and len(tabular) == 1:
+            matched = [name for name in fields if not name.lower().startswith("удалить")][:6]
         if not matched:
             continue
         shown = True

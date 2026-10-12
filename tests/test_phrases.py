@@ -199,7 +199,7 @@ class ProjectedCardTest(unittest.TestCase):
         card = server.get_metadata_structure("Документы.АВСписаниеЗапасов")
         text = project_card(card, "списание запасов за сентябрь 2025")
         self.assertIn("query_syntax", text)
-        self.assertIn("Товар", text)
+        self.assertIn("Табличная часть Запасы", text)
         self.assertNotIn("ВЫБРАТЬ", text)
         self.assertNotIn("УдалитьАвтор", text)
         self.assertIn("resolve_phrase не вызывать", text)
