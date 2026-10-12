@@ -547,6 +547,12 @@ class OneCMetadataMCPServer:
         foreign = [name for name in dict.fromkeys(qualifiers) if name.lower() not in aliases]
         if foreign:
             reasons.append("поля квалифицируй псевдонимом источника, не пиши " + ", ".join(foreign))
+        query_name = card.get("query_name") or ""
+        extra = re.findall(re.escape(query_name) + r"\.([0-9A-Za-zА-Яа-яЁё_]+)", statement, re.IGNORECASE) if query_name else []
+        sections = {name.lower() for name in tabular}
+        unknown_source = [name for name in extra if name.lower() not in sections]
+        if unknown_source:
+            reasons.append(f"после {query_name} можно только табличную часть; {unknown_source[0]} в карточке нет")
         if category == "Документы" and len(tabular) == 1:
             ts_name = next(iter(tabular))
             source_path = f"{card.get('query_name')}.{ts_name}".lower()

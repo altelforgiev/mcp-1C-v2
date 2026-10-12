@@ -173,6 +173,18 @@ def query_name_from_text(bsl: str) -> str:
 
 
 
+
+def fix_header_source(bsl: str) -> str:
+    """Первый источник — документ, не Документ.Имя.<не табличная часть>."""
+    return re.sub(
+        r"(из\s+)((?:документ|справочник)\.[0-9A-Za-zА-Яа-яЁё_]+)\.[0-9A-Za-zА-Яа-яЁё_]+\s+как",
+        r"\1\2 КАК",
+        bsl or "",
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+
 def fix_sources(bsl: str) -> str:
     """Источник табличной части пишется путём документа, не псевдонимом шапки."""
     body = bsl or ""
@@ -709,7 +721,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", "")))))
+        bsl = fix_header_source(fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", ""))))))
         rejected = [step for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected" and (step.get("arguments") or {}).get("bsl_code")]
         if not reviewed and rejected:
             reviewed = True
