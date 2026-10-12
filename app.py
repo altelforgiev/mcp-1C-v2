@@ -175,6 +175,47 @@ def query_name_from_text(bsl: str) -> str:
 
 
 
+
+def fix_unknown_fields(bsl: str, card: dict) -> str:
+    """Нет поля в карточке — единственное совпадение основы, иначе поле убирается."""
+    structure = (card or {}).get("structure") or {}
+    known = []
+    for bucket in ("Реквизиты", "СтандартныеРеквизиты", "Измерения", "Ресурсы"):
+        known.extend(structure.get(bucket) or [])
+    for fields in (structure.get("ТабличныеЧасти") or {}).values():
+        known.extend(fields or [])
+    known = [name for name in known if name and not name.lower().startswith("удалить")]
+    if not known:
+        return bsl or ""
+
+    def parts(name: str) -> set:
+        spaced = re.sub(r"(?<=[а-яёa-z])(?=[А-ЯЁA-Z])", " ", name)
+        return {stem_token(part) for part in re.findall(r"[0-9A-Za-zА-Яа-яЁё]+", spaced) if len(stem_token(part)) >= 4}
+
+    known_parts = {name: parts(name) for name in known}
+
+    def replace(match: re.Match) -> str:
+        prefix, field = match.group(1), match.group(2)
+        if any(field.lower() == name.lower() for name in known):
+            return match.group(0)
+        field_parts = parts(field)
+        hits = [name for name, item in known_parts.items() if field_parts and field_parts <= item]
+        if len(hits) == 1:
+            return f"{prefix}{hits[0]}"
+        return ""
+
+    start = re.search(r"\bвыбрать\b", bsl or "", re.IGNORECASE)
+    end = re.search(r"\bиз\b", bsl or "", re.IGNORECASE)
+    if not start or not end or end.start() <= start.end():
+        return bsl or ""
+    head, fields, tail = (bsl or "")[:start.end()], (bsl or "")[start.end():end.start()], (bsl or "")[end.start():]
+    fields = re.sub(r"([0-9A-Za-zА-Яа-яЁё_]+\.)([0-9A-Za-zА-Яа-яЁё_]+)", replace, fields)
+    fields = re.sub(r",\s*,", ",", fields)
+    fields = re.sub(r"^\s*,", " ", fields)
+    fields = re.sub(r",\s*$", " ", fields)
+    return head + fields + tail
+
+
 def fix_single_date(bsl: str) -> str:
     """Одна дата в ГДЕ документа — не период."""
     return re.sub(
@@ -733,7 +774,7 @@ def run_generation(prompt: str, server: OneCMetadataMCPServer, llm_complete, sys
                 "architecture_comment": "Цепочка оборвана на разборе ответа модели.",
             }
 
-        bsl = fix_single_date(fix_header_source(fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", "")))))))
+        bsl = fix_unknown_fields(fix_single_date(fix_header_source(fix_date_literals(fix_sources(fix_period(qualify_fields(parsed.get("bsl_code", ""))))))), last_card(trace, server))
         rejected = [step for step in trace if step.get("tool") == "check_query" and step.get("status") == "rejected" and (step.get("arguments") or {}).get("bsl_code")]
         if not reviewed and rejected:
             reviewed = True
