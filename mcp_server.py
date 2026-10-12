@@ -556,8 +556,13 @@ class OneCMetadataMCPServer:
         if category == "Документы" and len(tabular) == 1:
             ts_name = next(iter(tabular))
             source_path = f"{card.get('query_name')}.{ts_name}".lower()
+            first_source = re.split(r"\bсоединение\b", source, maxsplit=1, flags=re.IGNORECASE)[0]
+            if source_path in first_source.lower() and query_name.lower() + " как" not in first_source.lower():
+                reasons.append(f"первым источником пиши {query_name} КАК Шапка, табличную часть соединяй слева")
             if source_path not in lowered:
                 reasons.append(f"в ИЗ добавь соединение {card.get('query_name')}.{ts_name} КАК Строки; карточку для неё заново не запрашивай")
+            if re.search(r"\.дата\s*=\s*&", lowered) and "между" not in lowered:
+                reasons.append("период документа: Дата МЕЖДУ &НачалоПериода И &КонецПериода, не одна дата")
         if category == "РегистрыНакопления" and ".остатки(" in lowered and "&датаостатков" not in lowered:
             reasons.append("параметр остатков пиши &ДатаОстатков, не другое имя")
         if category == "РегистрыНакопления" and (".обороты(" in lowered or ".остатки(" in lowered):
@@ -727,6 +732,9 @@ class OneCMetadataMCPServer:
         return forms
 
     def query_syntax(self, entity_name: str, phrase: str = "") -> Dict[str, Any]:
+        parent = re.sub(r"\.[^.]+$", "", entity_name or "")
+        if parent and parent != entity_name and self.get_metadata_structure(parent).get("status") == "success":
+            entity_name = parent
         card = self.get_metadata_structure(entity_name)
         if card.get("status") != "success":
             return card
